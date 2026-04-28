@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OC Help - Admin de acceso</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      main {
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 1rem;
+      }
+      .card {
+        background: #111827;
+        border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+      }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      input[type="email"] {
+        flex: 1 1 320px;
+        background: #1f2937;
+        color: #e2e8f0;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        padding: 0.6rem;
+      }
+      button {
+        background: #2563eb;
+        color: white;
+        border: 0;
+        border-radius: 8px;
+        padding: 0.6rem 0.9rem;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #475569;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #334155;
+        padding: 0.55rem 0.35rem;
+        text-align: left;
+      }
+      .tag {
+        display: inline-block;
+        font-size: 0.82rem;
+        padding: 0.15rem 0.5rem;
+        border: 1px solid #475569;
+        border-radius: 999px;
+      }
+      .status {
+        color: #cbd5e1;
+      }
+      .small {
+        font-size: 0.9rem;
+        opacity: 0.9;
+      }
+      a {
+        color: #93c5fd;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Control de acceso del editor web</h1>
+        <p>Sesión: <b>{{ user_email }}</b></p>
+        <p>Solo se aceptan cuentas del dominio <b>@{{ domain }}</b>.</p>
+        <div class="row">
+          <label><input type="checkbox" id="login-required" {% if login_required %}checked{% endif %} /> Login obligatorio para usar el editor web</label>
+          <button id="btn-save-security" class="secondary">Guardar configuración</button>
+        </div>
+        <p class="small">Si se desactiva, el editor queda público sin autenticación.</p>
+        <p><a href="/">Ir al editor</a> - <a href="/logout">Cerrar sesión</a></p>
+      </section>
+
+      <section class="card">
+        <h2>Agregar o actualizar usuario</h2>
+        <div class="row">
+          <input type="email" id="email" placeholder="usuario@{{ domain }}" />
+          <label><input type="checkbox" id="is_admin" /> Admin</label>
+          <button id="btn-add">Guardar</button>
+        </div>
+        <p class="status" id="status"></p>
+      </section>
+
+      <section class="card">
+        <h2>Usuarios habilitados</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Rol</th>
+              <th>Bloqueado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="users-body">
+            {% for user in users %}
+            <tr data-email="{{ user.email }}">
+              <td>{{ user.email }}</td>
+              <td>{% if user.is_admin %}<span class="tag">Admin</span>{% else %}<span class="tag">Usuario</span>{% endif %}</td>
+              <td><input type="checkbox" class="ban-check" {% if user.is_banned %}checked{% endif %} /></td>
+              <td>
+                <button class="secondary btn-toggle-admin" data-admin="{{ 1 if user.is_admin else 0 }}">
+                  {% if user.is_admin %}Quitar admin{% else %}Hacer admin{% endif %}
+                </button>
+                <button class="secondary btn-remove">Eliminar</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      <section class="card">
+        <h2>Usuarios autenticados (historial)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Nombre</th>
+              <th>Primer login</th>
+              <th>Último login</th>
+              <th>Cantidad</th>
+            </tr>
+          </thead>
+          <tbody id="auth-users-body">
+            {% for user in authenticated_users %}
+            <tr>
+              <td>{{ user.email }}</td>
+              <td>{{ user.name }}</td>
+              <td>{{ user.first_login_at }}</td>
+              <td>{{ user.last_login_at }}</td>
+              <td>{{ user.login_count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    </main>
+    <script>
+      function setStatus(msg, isError) {
+        const el = document.getElementById("status");
+        el.textContent = msg || "";
+        el.style.color = isError ? "#fca5a5" : "#cbd5e1";
+      }
+
+      async function callAdminApi(payload) {
+        const response = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        return response.json();
+      }
+
+      async function saveSecurityConfig(loginRequired) {
+        const response = await fetch("/api/admin/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login_required: loginRequired }),
+        });
+        return response.json();
+      }
+
+      async function refreshUsers() {
+        const response = await fetch("/api/admin/users");
+        const data = await response.json();
+        if (!data.ok) {
+          setStatus(data.error || "No se pudo recargar usuarios.", true);
+          return;
+        }
+        const tbody = document.getElementById("users-body");
+        tbody.innerHTML = data.users.map((user) => `
+          <tr data-email="${user.email}">
+            <td>${user.email}</td>
+            <td>${user.is_admin ? '<span class="tag">Admin</span>' : '<span class="tag">Usuario</span>'}</td>
+            <td><input type="checkbox" class="ban-check" ${user.is_banned ? "checked" : ""} /></td>
+            <td>
+              <button class="secondary btn-toggle-admin" data-admin="${user.is_admin ? "1" : "0"}">
+                ${user.is_admin ? "Quitar admin" : "Hacer admin"}
+              </button>
+              <button class="secondary btn-remove">Eliminar</button>
+            </td>
+          </tr>
+        `).join("");
+        const authBody = document.getElementById("auth-users-body");
+        authBody.innerHTML = (data.authenticated_users || []).map((user) => `
+          <tr>
+            <td>${user.email || ""}</td>
+            <td>${user.name || ""}</td>
+            <td>${user.first_login_at || ""}</td>
+            <td>${user.last_login_at || ""}</td>
+            <td>${user.login_count || 0}</td>
+          </tr>
+        `).join("");
+        document.getElementById("login-required").checked = Boolean(data.login_required);
+      }
+
+      document.getElementById("btn-save-security").addEventListener("click", async () => {
+        const loginRequired = document.getElementById("login-required").checked;
+        const data = await saveSecurityConfig(loginRequired);
+        setStatus(data.message || data.error, !data.ok);
+      });
+
+      document.getElementById("btn-add").addEventListener("click", async () => {
+        const email = document.getElementById("email").value.trim().toLowerCase();
+        const isAdmin = document.getElementById("is_admin").checked;
+        if (!email) {
+          setStatus("Ingresa un correo.", true);
+          return;
+        }
+        const data = await callAdminApi({ action: "add", email, is_admin: isAdmin });
+        setStatus(data.message || data.error, !data.ok);
+        if (data.ok) {
+          document.getElementById("email").value = "";
+          document.getElementById("is_admin").checked = false;
+          await refreshUsers();
+        }
+      });
+
+      document.getElementById("users-body").addEventListener("click", async (event) => {
+        const row = event.target.closest("tr[data-email]");
+        if (!row) {
+          return;
+        }
+        const email = row.dataset.email;
+        if (event.target.classList.contains("btn-remove")) {
+          const data = await callAdminApi({ action: "remove", email });
+          setStatus(data.message || data.error, !data.ok);
+          if (data.ok) {
+            await refreshUsers();
+          }
+        }
+        if (event.target.classList.contains("btn-toggle-admin")) {
+          const isCurrentlyAdmin = event.target.dataset.admin === "1";
+          const data = await callAdminApi({ action: "set_admin", email, is_admin: !isCurrentlyAdmin });
+          setStatus(data.message || data.error, !data.ok);
+          if (data.ok) {
+            await refreshUsers();
+          }
+        }
+        if (event.target.classList.contains("ban-check")) {
+          const data = await callAdminApi({ action: "set_ban", email, is_banned: event.target.checked });
+          setStatus(data.message || data.error, !data.ok);
+          if (!data.ok) {
+            event.target.checked = !event.target.checked;
+            return;
+          }
+          await refreshUsers();
+        }
+      });
+    </script>
+  </body>
+</html>

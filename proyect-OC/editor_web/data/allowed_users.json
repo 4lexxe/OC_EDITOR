@@ -1,0 +1,12 @@
+{
+  "users": {
+    "alexxe@fi.unju.edu.ar": {
+      "is_admin": true,
+      "is_banned": false
+    },
+    "44877389@fi.unju.edu.ar": {
+      "is_admin": true,
+      "is_banned": false
+    }
+  }
+}

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OC Help - Editor Web</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Victor+Mono:ital,wght@0,400;1,500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Simulador CPU - Editor Web</h1>
+      <div class="top-actions">
+        <span style="font-size: 0.85rem; opacity: 0.85;">{{ user_email }}</span>
+        <button id="btn-config">Config</button>
+        <button id="btn-run-step">Ejecutar 1 instrucción</button>
+        <button id="btn-reset">Reiniciar</button>
+        <button onclick="window.location.href='/logout'">Salir</button>
+      </div>
+    </header>
+
+    <main class="layout compact">
+      <aside class="panel left hidden-panel">
+        <section class="box">
+          <h2>Registros (binario ↔ hex)</h2>
+          <div id="registers" class="register-grid"></div>
+        </section>
+        <section class="box fill">
+          <h2>Memoria RAM (editable)</h2>
+          <div id="memory-edit" class="memory-table"></div>
+        </section>
+      </aside>
+
+      <section class="panel center">
+        <section class="box editor-box">
+          <h2>Editor de Código</h2>
+          <div class="editor-wrap">
+            <textarea id="line-numbers" readonly></textarea>
+            <div class="code-layer">
+              <pre id="code-highlight" aria-hidden="true"></pre>
+              <textarea id="code" spellcheck="false" wrap="off"></textarea>
+            </div>
+          </div>
+          <div id="autocomplete-popup" class="autocomplete-popup hidden">
+            <ul id="autocomplete-list"></ul>
+            <div id="autocomplete-tip" class="autocomplete-tip"></div>
+          </div>
+        </section>
+      </section>
+
+      <aside class="panel right">
+        <section class="box">
+          <h2>Traza (tiempo real)</h2>
+          <div class="trace-controls">
+            <label>Vista
+              <select id="trace-mode">
+                <option value="fetch">Fetch + editor (estilo apuntes)</option>
+                <option value="editor">Solo editor (sin fetch)</option>
+              </select>
+            </label>
+            <label class="inline"><input type="checkbox" id="trace-decimal" /> MAR y PC en decimal</label>
+            <label class="inline"><input type="checkbox" id="trace-compact" checked /> Solo valores que cambian</label>
+          </div>
+          <div class="trace-table-wrap">
+            <table id="trace-table">
+              <thead>
+                <tr>
+                  <th>Ciclo</th>
+                  <th>Microoperación</th>
+                  <th>PC</th>
+                  <th>MAR</th>
+                  <th>GPR</th>
+                  <th>GPR(OP)</th>
+                  <th>GPR(AD)</th>
+                  <th>OPR</th>
+                  <th>ACC</th>
+                  <th>F</th>
+                  <th>M</th>
+                </tr>
+              </thead>
+              <tbody id="trace-body"></tbody>
+            </table>
+          </div>
+          <pre id="trace-status" class="status-lite"></pre>
+          <h3>Memoria usada en la traza</h3>
+          <pre id="trace-memory" class="scroll-box"></pre>
+          <h3>Qué hace</h3>
+          <pre id="trace-explanation" class="scroll-box"></pre>
+          <h3>Arquitectura</h3>
+          <img class="arch-image" src="/assets/images/arq_basica.png" alt="Arquitectura básica" />
+        </section>
+      </aside>
+    </main>
+
+    <section class="bottom hidden-panel">
+      <section class="box fill hidden-panel">
+        <h2>Memoria RAM (vista)</h2>
+        <div id="memory-view" class="memory-table"></div>
+      </section>
+    </section>
+
+    <section class="actions">
+      <div class="infer">
+        <button id="btn-infer">Inferir instrucción</button>
+        <button id="btn-copy-infer">Copiar instrucción</button>
+        <p id="pc-line"></p>
+        <p id="infer-text"></p>
+      </div>
+      <div class="generator">
+        <h2>Generar microoperaciones</h2>
+        <div class="gen-grid">
+          <label>Instrucción
+            <input id="gen-expression" type="text" placeholder="Ej: ACC <- ACC - F" />
+          </label>
+          <label>Modo dir.
+            <select id="gen-mode">
+              <option value="">Solo ejecución (sin fetch)</option>
+              <option value="implicado">Ciclo completo - implicado/inherente</option>
+              <option value="directo">Ciclo completo - directo</option>
+              <option value="indirecto">Ciclo completo - indirecto</option>
+            </select>
+          </label>
+          <button id="btn-generate">Generar</button>
+        </div>
+        <p id="gen-result"></p>
+      </div>
+    </section>
+
+    <dialog id="config-modal" class="config-modal">
+      <div class="config-card">
+        <h2>Configuración</h2>
+        <label>Tamaño de texto del editor
+          <input id="font-size-range" type="range" min="12" max="26" step="1" value="16" />
+        </label>
+        <p id="font-size-value">16 px</p>
+        <button id="btn-config-close">Cerrar</button>
+      </div>
+    </dialog>
+
+    <footer class="statusbar" id="statusbar">Listo.</footer>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

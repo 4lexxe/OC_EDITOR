@@ -344,6 +344,7 @@ class CPU_UI:
         self.code = tk.Text(editor_frame, font=(font_family, font_size), bg="#ffffff", fg="#000000",
                             insertbackground="#000000")
         self.code.grid(row=0, column=1, sticky="nsew")
+        self.code.tag_configure("comentario", foreground="#6d6d6d", font=(font_family, font_size, "italic"))
 
         scrollbar = ttk.Scrollbar(editor_frame, orient="vertical", command=self._on_scroll)
         scrollbar.grid(row=0, column=2, sticky="ns")
@@ -395,6 +396,7 @@ class CPU_UI:
 
         self.actualizar_lineas()
         self.aplicar_tema(self._theme_mode)
+        self._resaltar_comentarios()
         self._programar_actualizar_traza()
 
     # ---------------------------
@@ -554,10 +556,94 @@ class CPU_UI:
         self._habilitar_scroll_rueda_texto(self._trace_explicacion_text)
         self._habilitar_scroll_rueda_en_frame(tab_exp, self._trace_explicacion_text)
 
+        tab_arch = ttk.Frame(self._trace_notebook, padding=4)
+        self._trace_notebook.add(tab_arch, text="Arquitectura")
+        tab_arch.columnconfigure(0, weight=1)
+        tab_arch.rowconfigure(1, weight=1)
+
+        controls_frame = ttk.Frame(tab_arch)
+        controls_frame.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        controls_frame.columnconfigure(0, weight=1)
+        controls_frame.columnconfigure(1, weight=1)
+        controls_frame.columnconfigure(2, weight=1)
+        ttk.Button(controls_frame, text="Zoom -", command=lambda: self._ajustar_zoom_arquitectura(-1)).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ttk.Button(controls_frame, text="100%", command=lambda: self._ajustar_zoom_arquitectura(0, reset=True)).grid(row=0, column=1, sticky="ew", padx=4)
+        ttk.Button(controls_frame, text="Zoom +", command=lambda: self._ajustar_zoom_arquitectura(1)).grid(row=0, column=2, sticky="ew", padx=(4, 0))
+
+        canvas_frame = ttk.Frame(tab_arch)
+        canvas_frame.grid(row=1, column=0, sticky="nsew")
+        canvas_frame.columnconfigure(0, weight=1)
+        canvas_frame.rowconfigure(0, weight=1)
+
+        arch_canvas = tk.Canvas(canvas_frame, highlightthickness=0)
+        arch_canvas.grid(row=0, column=0, sticky="nsew")
+
+        arch_vscroll = ttk.Scrollbar(canvas_frame, orient="vertical", command=arch_canvas.yview)
+        arch_vscroll.grid(row=0, column=1, sticky="ns")
+        arch_hscroll = ttk.Scrollbar(canvas_frame, orient="horizontal", command=arch_canvas.xview)
+        arch_hscroll.grid(row=1, column=0, sticky="ew")
+        arch_canvas.configure(yscrollcommand=arch_vscroll.set, xscrollcommand=arch_hscroll.set)
+
+        try:
+            arch_path = os.path.join(_base_proyecto(), "images", "arq_basica.png")
+            self._architecture_image_orig = tk.PhotoImage(file=arch_path)
+            self._architecture_image_zoom = self._architecture_image_orig
+            self._architecture_zoom_level = 1
+            self._architecture_canvas = arch_canvas
+            self._architecture_image_id = arch_canvas.create_image(0, 0, anchor="nw", image=self._architecture_image_zoom)
+            self._architecture_canvas.config(scrollregion=(0, 0, self._architecture_image_zoom.width(), self._architecture_image_zoom.height()))
+            arch_canvas.bind("<Configure>", lambda e: arch_canvas.configure(scrollregion=(0, 0, self._architecture_image_zoom.width(), self._architecture_image_zoom.height())))
+            arch_canvas.bind("<Enter>", lambda e: arch_canvas.focus_set())
+            arch_canvas.bind("<MouseWheel>", self._on_architecture_mouse_wheel)
+            arch_canvas.bind("<Button-4>", self._on_architecture_mouse_wheel)
+            arch_canvas.bind("<Button-5>", self._on_architecture_mouse_wheel)
+        except tk.TclError:
+            ttk.Label(
+                tab_arch,
+                text="No se pudo cargar la imagen de arquitectura.",
+                foreground="gray",
+                font=(font_family, self._scaled_size(9)),
+            ).grid(row=0, column=0, sticky="nsew")
+
         self.trace_status_var = tk.StringVar(value="")
         ttk.Label(trace_frame, textvariable=self.trace_status_var, foreground="gray",
                   font=(font_family, self._scaled_size(8))).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self._trace_last_pc_mar_dec: bool | None = None
+
+    def _on_architecture_mouse_wheel(self, event):
+        if not hasattr(self, '_architecture_canvas'):
+            return "break"
+        if event.delta:
+            self._architecture_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        elif event.num == 4:
+            self._architecture_canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            self._architecture_canvas.yview_scroll(1, "units")
+        return "break"
+
+    def _ajustar_zoom_arquitectura(self, direction, reset=False):
+        if not hasattr(self, '_architecture_image_orig'):
+            return
+        levels = [0.5, 1, 2, 3, 4]
+        if reset:
+            self._architecture_zoom_level = 1
+        else:
+            current = self._architecture_zoom_level
+            idx = levels.index(current)
+            new_idx = max(0, min(len(levels) - 1, idx + direction))
+            self._architecture_zoom_level = levels[new_idx]
+
+        zoom_factor = self._architecture_zoom_level
+        if zoom_factor == 1:
+            scaled = self._architecture_image_orig
+        elif zoom_factor < 1:
+            scaled = self._architecture_image_orig.subsample(2, 2)
+        else:
+            scaled = self._architecture_image_orig.zoom(int(zoom_factor), int(zoom_factor))
+
+        self._architecture_image_zoom = scaled
+        self._architecture_canvas.itemconfigure(self._architecture_image_id, image=self._architecture_image_zoom)
+        self._architecture_canvas.configure(scrollregion=(0, 0, self._architecture_image_zoom.width(), self._architecture_image_zoom.height()))
 
     def _habilitar_scroll_rueda_texto(self, widget):
         """
@@ -730,6 +816,7 @@ class CPU_UI:
         if self.code.edit_modified():
             self.code.edit_modified(False)
             self.actualizar_lineas()
+            self._resaltar_comentarios()
             self._programar_actualizar_traza()
             self._programar_actualizar_inferencia()
 
@@ -760,6 +847,7 @@ class CPU_UI:
 
     def _on_key_release(self, event=None):
         self.actualizar_lineas()
+        self._resaltar_comentarios()
         self._programar_actualizar_traza()
         self._programar_actualizar_inferencia()
         # No mostrar autocomplete con teclas de navegación o modificadores
@@ -818,6 +906,7 @@ class CPU_UI:
         # Reemplazar la línea actual completa con la instrucción seleccionada
         self.code.delete("insert linestart", "insert lineend")
         self.code.insert("insert linestart", instr)
+        self._resaltar_comentarios()
         self.cerrar_autocomplete()
         self.code.focus_set()
         return "break"
@@ -858,6 +947,31 @@ class CPU_UI:
             self.line_numbers.insert("end", f"{i}\n")
 
         self.line_numbers.config(state="disabled")
+
+    @staticmethod
+    def _indice_inicio_comentario(linea: str) -> int:
+        inicio = -1
+        for marcador in (";", "//", "#"):
+            idx = linea.find(marcador)
+            if idx == -1:
+                continue
+            if inicio == -1 or idx < inicio:
+                inicio = idx
+        return inicio
+
+    def _resaltar_comentarios(self):
+        if not hasattr(self, "code") or self.code is None:
+            return
+        self.code.tag_remove("comentario", "1.0", "end")
+        total_lineas = int(self.code.index("end-1c").split(".")[0])
+        for n in range(1, total_lineas + 1):
+            inicio = f"{n}.0"
+            fin = f"{n}.end"
+            texto = self.code.get(inicio, fin)
+            idx = self._indice_inicio_comentario(texto)
+            if idx < 0:
+                continue
+            self.code.tag_add("comentario", f"{n}.{idx}", fin)
 
     def _on_scroll(self, *args):
         self.code.yview(*args)
@@ -1213,6 +1327,11 @@ class CPU_UI:
         tooltip_size = self._scaled_size(max(8, font_size_base - 2), min_size=7)
 
         self.code.config(font=(font_family, font_size))
+        self.code.tag_configure(
+            "comentario",
+            font=(font_family, font_size, "italic"),
+            foreground=self._theme_colors.get("text_muted", "#6d6d6d"),
+        )
         self.line_numbers.config(font=(font_family, font_size))
         self.autocomplete_list.config(font=(font_family, font_size))
         self.tooltip_lbl.config(font=(font_family, tooltip_size))
@@ -1311,10 +1430,12 @@ class CPU_UI:
         self.root.configure(bg=bg)
 
         self.code.config(bg=editor_bg, fg=editor_fg, insertbackground=editor_fg)
+        self.code.tag_configure("comentario", foreground=text_muted)
         self.line_numbers.config(background=lines_bg, fg=lines_fg)
         self.autocomplete_list.config(bg=popup_bg, fg=editor_fg, selectbackground=select_bg)
         self.tooltip_lbl.config(bg=tooltip_bg, fg=tooltip_fg)
         self.autocomplete_popup.config(bg=popup_bg)
+        self._resaltar_comentarios()
 
         if getattr(self, "_trace_mem_text", None) is not None:
             self._trace_mem_text.configure(bg=editor_bg, fg=editor_fg, insertbackground=editor_fg)
@@ -1434,6 +1555,7 @@ class CPU_UI:
             # Insertar en el editor
             self.code.delete("1.0", "end")
             self.code.insert("1.0", "\n".join(ops))
+            self._resaltar_comentarios()
             self.actualizar_lineas()
             self.gen_resultado_var.set(f"Generadas {len(ops)} instrucciones  →  cargadas en el editor")
             self.mostrar_estado(f"Generadas {len(ops)} ops para: {expresion}", error=False)

@@ -425,6 +425,9 @@ def inferir(ops: list) -> str:
 
     if "M" in cambios and ultimo_op in ("GPR_TO_M", "M_TO_GPR"):
         lineas.append(_fmt_instruccion("M", cambios["M"]))
+        # Si ACC también cambió, mostrar ambos efectos para no ocultar información.
+        if "ACC" in cambios:
+            lineas.append(_fmt_instruccion("ACC", cambios["ACC"]))
     elif "ACC" in cambios:
         lineas.append(_fmt_instruccion("ACC", cambios["ACC"]))
         if "M" in cambios and ultimo_op == "GPR_TO_M":

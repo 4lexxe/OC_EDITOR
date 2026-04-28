@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OC Help - Login</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      .card {
+        width: min(540px, 92vw);
+        background: #111827;
+        border: 1px solid #334155;
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin-top: 0;
+        margin-bottom: 0.5rem;
+      }
+      .logo-wrap {
+        text-align: center;
+      }
+      .logo {
+        width: min(240px, 65vw);
+        height: auto;
+        margin-bottom: 0.5rem;
+        border-radius: 10px;
+      }
+      p {
+        color: #cbd5e1;
+      }
+      .btn {
+        display: inline-block;
+        margin-top: 0.6rem;
+        background: #2563eb;
+        color: white;
+        text-decoration: none;
+        font-weight: 600;
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+      }
+      .hint {
+        margin-top: 1rem;
+        font-size: 0.92rem;
+        opacity: 0.9;
+      }
+      .promo {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 10px;
+        background: #0b1223;
+        border: 1px solid #334155;
+      }
+      .promo b {
+        color: #67e8f9;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="logo-wrap">
+        <img class="logo" src="/editor-images/logo.png" alt="Logo Devs Project OC Help" />
+      </div>
+      <h1>Acceso de prueba al editor web</h1>
+      <p>Esto es una prueba para acceder. Debes logearte por Google.</p>
+      <a class="btn" href="/auth/google">Logearme con Google</a>
+      <div class="promo">
+        <p><b>Devs Project OC Help</b> es una herramienta pensada para ayudar a estudiantes a conocer mejor la organización de computadoras, practicar microoperaciones y reforzar su aprendizaje con simulación guiada.</p>
+      </div>
+    </main>
+  </body>
+</html>

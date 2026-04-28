@@ -135,13 +135,19 @@ parser = yacc.yacc(
 
 def preprocesar_linea_microop(linea: str) -> str:
     """
-    Quita comentarios desde ';' hasta el fin de línea (estilo ensamblador).
+    Quita comentarios al final de línea para permitir anotaciones humanas.
+    Marcadores soportados: ';' (estilo ensamblador), '#' y '//'.
     Sin esto, una anotación como «GPR+ACC -> ACC  ; 3M» hace fallar el léxico
     y la línea completa se ignora al inferir o ejecutar.
     """
     linea = linea.strip()
     if not linea:
         return linea
-    if ";" in linea:
-        linea = linea.split(";", 1)[0].strip()
+    corte = len(linea)
+    for marcador in (";", "//", "#"):
+        idx = linea.find(marcador)
+        if idx != -1:
+            corte = min(corte, idx)
+    if corte < len(linea):
+        linea = linea[:corte].strip()
     return linea
