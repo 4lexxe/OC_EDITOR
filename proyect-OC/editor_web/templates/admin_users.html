@@ -71,6 +71,27 @@
         font-size: 0.9rem;
         opacity: 0.9;
       }
+      .console {
+        background: #0b1223;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 0.75rem;
+        font-family: ui-monospace, "Cascadia Code", monospace;
+        font-size: 0.78rem;
+        max-height: 320px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #a5b4fc;
+      }
+      .warn-box {
+        border: 1px solid #b45309;
+        background: #1c1917;
+        color: #fdba74;
+        padding: 0.65rem;
+        border-radius: 8px;
+        font-size: 0.88rem;
+      }
       a {
         color: #93c5fd;
       }
@@ -87,7 +108,26 @@
           <button id="btn-save-security" class="secondary">Guardar configuración</button>
         </div>
         <p class="small">Si se desactiva, el editor queda público sin autenticación.</p>
+        <p class="small"><b>Datos (usuarios y configuración):</b> <code>{{ data_dir }}</code></p>
+        {% if not persistence_custom %}
+        <p class="warn-box">
+          Estás usando la carpeta por defecto del código. En Render (y otros PaaS) el disco del contenedor se borra al reiniciar: usuarios y “login obligatorio” pueden perderse.
+          Configura <code>EDITOR_WEB_DATA_DIR</code> apuntando a un <b>Persistent Disk</b> (por ejemplo <code>/var/oc-data</code>) y monta ese disco en el servicio.
+        </p>
+        {% else %}
+        <p class="small" style="color:#86efac;">Persistencia: directorio externo activo (recomendado para producción).</p>
+        {% endif %}
         <p><a href="/">Ir al editor</a> - <a href="/logout">Cerrar sesión</a></p>
+      </section>
+
+      <section class="card">
+        <h2>Consola de peticiones (memoria del proceso)</h2>
+        <p class="small">Solo memoria del proceso: útil para depurar qué llamó la API y qué respondió (vista previa acotada).</p>
+        <div class="row">
+          <button type="button" class="secondary" id="btn-refresh-log">Actualizar consola</button>
+          <button type="button" class="secondary" id="btn-clear-log-view">Limpiar vista</button>
+        </div>
+        <pre class="console" id="request-log-console">Cargando…</pre>
       </section>
 
       <section class="card">
@@ -234,6 +274,28 @@
           await refreshUsers();
         }
       });
+
+      async function refreshRequestLog() {
+        const el = document.getElementById("request-log-console");
+        const res = await fetch("/api/admin/request-log");
+        const data = await res.json();
+        if (!data.ok) {
+          el.textContent = data.error || "No se pudo cargar el log.";
+          return;
+        }
+        const lines = (data.entries || []).map((e) => {
+          const req = e.request_json ? ` req=${e.request_json}` : "";
+          const resp = e.response_preview ? ` resp=${e.response_preview}` : "";
+          return `[${e.ts}] ${e.method} ${e.path}${e.query ? "?" + e.query : ""} → ${e.status} (${e.duration_ms}ms)${req}${resp}`;
+        });
+        el.textContent = lines.length ? lines.join("\n") : "(sin entradas aún)";
+      }
+
+      document.getElementById("btn-refresh-log").addEventListener("click", refreshRequestLog);
+      document.getElementById("btn-clear-log-view").addEventListener("click", () => {
+        document.getElementById("request-log-console").textContent = "(vista limpiada; recarga para ver de nuevo)";
+      });
+      refreshRequestLog();
 
       document.getElementById("users-body").addEventListener("click", async (event) => {
         const row = event.target.closest("tr[data-email]");

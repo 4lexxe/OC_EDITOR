@@ -3,13 +3,16 @@ from __future__ import annotations
 import os
 import sys
 import json
+import time
+import shutil
+from collections import deque
 from functools import wraps
 from pathlib import Path
 from datetime import datetime, timezone
 
 from bitstring import BitArray
 from authlib.integrations.flask_client import OAuth
-from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 if str(BASE_DIR) not in sys.path:
@@ -37,9 +40,26 @@ oauth.register(
 ALLOWED_DOMAIN = os.environ.get("ALLOWED_DOMAIN", "fi.unju.edu.ar").lower()
 ADMIN_PATH = os.environ.get("EDITOR_WEB_ADMIN_PATH", "/_internal/access-control")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
-USERS_FILE = Path(__file__).resolve().parent / "data" / "allowed_users.json"
-AUTH_USERS_FILE = Path(__file__).resolve().parent / "data" / "authenticated_users.json"
-SECURITY_FILE = Path(__file__).resolve().parent / "data" / "security_settings.json"
+
+_EDITOR_WEB_ROOT = Path(__file__).resolve().parent
+_BUNDLED_DATA_DIR = _EDITOR_WEB_ROOT / "data"
+
+
+def _resolve_data_dir() -> Path:
+    custom = os.environ.get("EDITOR_WEB_DATA_DIR", "").strip()
+    if custom:
+        return Path(custom).expanduser().resolve()
+    return _BUNDLED_DATA_DIR
+
+
+DATA_DIR = _resolve_data_dir()
+USERS_FILE = DATA_DIR / "allowed_users.json"
+AUTH_USERS_FILE = DATA_DIR / "authenticated_users.json"
+SECURITY_FILE = DATA_DIR / "security_settings.json"
+
+REQUEST_LOG_MAX = max(20, min(500, int(os.environ.get("EDITOR_WEB_REQUEST_LOG_MAX", "120"))))
+_request_audit_log: deque[dict] = deque(maxlen=REQUEST_LOG_MAX)
+
 DEFAULT_ADMIN_EMAILS = [
     email.strip().lower()
     for email in os.environ.get("EDITOR_WEB_DEFAULT_ADMINS", "").split(",")
@@ -126,6 +146,20 @@ def _load_security_settings() -> dict:
 def _save_security_settings(settings: dict) -> None:
     SECURITY_FILE.parent.mkdir(parents=True, exist_ok=True)
     SECURITY_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _bootstrap_data_from_bundled_if_needed() -> None:
+    if DATA_DIR.resolve() == _BUNDLED_DATA_DIR.resolve():
+        return
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    for name in ("allowed_users.json", "security_settings.json", "authenticated_users.json"):
+        src = _BUNDLED_DATA_DIR / name
+        dst = DATA_DIR / name
+        if src.exists() and not dst.exists():
+            try:
+                shutil.copy2(src, dst)
+            except OSError:
+                pass
 
 
 def _is_login_required() -> bool:
@@ -385,6 +419,7 @@ class EditorWebState:
 
 
 STATE = EditorWebState()
+_bootstrap_data_from_bundled_if_needed()
 _ensure_default_admins()
 
 
@@ -414,6 +449,66 @@ def _protect_editor_web():
             return jsonify({"ok": False, "error": "No autenticado."}), 401
         return redirect(url_for("login"))
     return None
+
+
+@app.before_request
+def _request_start_timer():
+    g._t0 = time.perf_counter()
+
+
+def _safe_json_preview(obj: object, limit: int = 600) -> str:
+    try:
+        s = json.dumps(obj, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        s = str(obj)
+    return s if len(s) <= limit else s[: limit - 3] + "..."
+
+
+@app.after_request
+def _admin_request_audit_log(response):
+    try:
+        if (
+            request.path.startswith("/static/")
+            or request.path.startswith("/editor-images/")
+            or request.path.startswith("/assets/")
+        ):
+            return response
+        duration_ms = None
+        if getattr(g, "_t0", None) is not None:
+            duration_ms = round((time.perf_counter() - g._t0) * 1000, 2)
+
+        req_preview = ""
+        if request.method in ("POST", "PUT", "PATCH") and request.path.startswith("/api/"):
+            cl = request.content_length
+            if cl is not None and cl < 12000:
+                if request.is_json:
+                    req_preview = _safe_json_preview(request.get_json(silent=True) or {}, 800)
+
+        resp_preview = ""
+        ct = (response.headers.get("Content-Type") or "").lower()
+        if "application/json" in ct and not response.direct_passthrough:
+            try:
+                raw = response.get_data()
+                if len(raw) <= 20000:
+                    resp_preview = raw.decode("utf-8", errors="replace")[:1200]
+                response.set_data(raw)
+            except OSError:
+                pass
+
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "method": request.method,
+            "path": request.path,
+            "query": request.query_string.decode("utf-8", errors="replace")[:500],
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+            "request_json": req_preview or None,
+            "response_preview": resp_preview or None,
+        }
+        _request_audit_log.appendleft(entry)
+    except Exception:
+        pass
+    return response
 
 
 @app.route("/login")
@@ -489,6 +584,7 @@ def admin_users():
         for email, info in sorted(auth_data["users"].items(), key=lambda item: item[0])
     ]
     settings = _load_security_settings()
+    using_custom_data = DATA_DIR.resolve() != _BUNDLED_DATA_DIR.resolve()
     return render_template(
         "admin_users.html",
         users=users,
@@ -496,6 +592,8 @@ def admin_users():
         login_required=settings.get("login_required", True),
         domain=ALLOWED_DOMAIN,
         user_email=session.get("user_email"),
+        data_dir=str(DATA_DIR),
+        persistence_custom=using_custom_data,
     )
 
 
@@ -619,6 +717,15 @@ def api_admin_settings_post():
             "login_required": settings["login_required"],
         }
     )
+
+
+@app.get("/api/admin/request-log")
+def api_admin_request_log():
+    if not _is_logged_in():
+        return jsonify({"ok": False, "error": "No autenticado."}), 401
+    if not _is_admin():
+        return jsonify({"ok": False, "error": "No autorizado."}), 403
+    return jsonify({"ok": True, "entries": list(_request_audit_log)})
 
 
 @app.route("/assets/images/<path:filename>")

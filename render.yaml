@@ -1,0 +1,16 @@
+# Despliegue en Render (Blueprint opcional).
+# Añade en el dashboard las variables secretas: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+# FLASK_SECRET_KEY, GOOGLE_REDIRECT_URI, EDITOR_WEB_DEFAULT_ADMINS.
+#
+# Para datos persistentes: crea un Persistent Disk y monta p. ej. en /var/oc-data,
+# luego EDITOR_WEB_DATA_DIR=/var/oc-data (en el plan gratuito el disco persistente puede no estar disponible).
+
+services:
+  - type: web
+    name: oc-editor
+    runtime: python
+    buildCommand: pip install -r proyect-OC/requirements.txt
+    startCommand: gunicorn --chdir proyect-OC/editor_web app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.9"
