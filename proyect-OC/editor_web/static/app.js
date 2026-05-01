@@ -602,6 +602,13 @@ function initEvents() {
     syncEditorMetrics();
     renderHighlightedCode();
   });
+
+  const KEEPALIVE_MS = 8 * 60 * 1000;
+  const pingKeepalive = () => {
+    fetch("/api/keepalive", { method: "GET", credentials: "same-origin" }).catch(() => {});
+  };
+  pingKeepalive();
+  setInterval(pingKeepalive, KEEPALIVE_MS);
 }
 
 initEvents();

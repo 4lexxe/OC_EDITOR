@@ -5,6 +5,7 @@ import sys
 import json
 import time
 import shutil
+import threading
 from collections import deque
 from functools import wraps
 from pathlib import Path
@@ -425,6 +426,8 @@ _ensure_default_admins()
 
 @app.before_request
 def _protect_editor_web():
+    if request.path == "/api/keepalive":
+        return None
     public_paths = {
         "/login",
         "/auth/google",
@@ -467,6 +470,8 @@ def _safe_json_preview(obj: object, limit: int = 600) -> str:
 @app.after_request
 def _admin_request_audit_log(response):
     try:
+        if request.path == "/api/keepalive":
+            return response
         if (
             request.path.startswith("/static/")
             or request.path.startswith("/editor-images/")
@@ -741,6 +746,11 @@ def editor_images(filename: str):
     return send_from_directory(images_dir, filename)
 
 
+@app.get("/api/keepalive")
+def api_keepalive():
+    return jsonify({"ok": True, "ts": datetime.now(timezone.utc).isoformat()})
+
+
 @app.get("/api/state")
 @login_required
 def api_state_get():
@@ -852,6 +862,28 @@ def api_trace():
             "explanation": texto_explicacion_codigo(code),
         }
     )
+
+
+def _start_self_keepalive_if_configured() -> None:
+    url = os.environ.get("EDITOR_WEB_SELF_KEEPALIVE_URL", "").strip()
+    if not url:
+        return
+    interval = max(120, int(os.environ.get("EDITOR_WEB_SELF_KEEPALIVE_INTERVAL_SEC", "480")))
+
+    def _loop():
+        import requests
+
+        while True:
+            try:
+                requests.get(url, timeout=25)
+            except Exception:
+                pass
+            time.sleep(interval)
+
+    threading.Thread(target=_loop, daemon=True, name="editor_web_keepalive").start()
+
+
+_start_self_keepalive_if_configured()
 
 
 if __name__ == "__main__":

@@ -65,6 +65,15 @@ Por defecto se guardan en `editor_web/data/` junto al código. En **Render** (y 
 3. Al arrancar, si el volumen está vacío, la app **copia** desde `editor_web/data/` del repo los JSON que falten (plantilla inicial).
 4. Opcional: `EDITOR_WEB_REQUEST_LOG_MAX=200` (tamaño máximo del anillo de la consola de peticiones en el panel admin).
 
+### Mantener el servicio despierto (plan gratis / spin-down)
+
+- Con la página del editor abierta, el front hace **`GET /api/keepalive` cada 8 minutos** (tráfico HTTP hacia tu instancia).
+- Si **nadie** tiene el sitio abierto, podés configurar en Render:
+  - `EDITOR_WEB_SELF_KEEPALIVE_URL` = `https://TU-SERVICIO.onrender.com/api/keepalive`
+  - opcional `EDITOR_WEB_SELF_KEEPALIVE_INTERVAL_SEC` = `480` (8 min; mínimo efectivo 120 s)
+
+Eso hace que el proceso pida su propia URL por HTTP y suela contar como visita para el proxy de Render (un worker: un hilo).
+
 El panel `/_internal/access-control` muestra la ruta de datos activa y un aviso si sigues en modo efímero.
 
 ## Notas
