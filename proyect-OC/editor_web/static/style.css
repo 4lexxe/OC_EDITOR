@@ -100,8 +100,26 @@ label {
   padding: 10px;
 }
 
-.topbar h1 {
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.topbar-brand img {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.topbar-brand h1 {
+  margin: 0;
   font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
 }
 
 .top-actions {
@@ -547,7 +565,12 @@ th {
     padding: 8px;
     border-radius: 10px;
   }
-  .topbar h1 {
+  .topbar-brand {
+    width: 100%;
+    flex: initial;
+  }
+
+  .topbar-brand h1 {
     font-size: 14px;
     width: 100%;
     margin-bottom: 2px;

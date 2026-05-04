@@ -3,17 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OC Help - Editor Web</title>
+    <title>Desarrollado por la comunidad DEVS PROJECT</title>
     <meta name="description" content="Simulador de CPU y editor web para microprogramación y traza, OC Help." />
     <link rel="canonical" href="{{ url_for('index', _external=True) }}" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="OC Help - Editor Web" />
+    <meta property="og:title" content="Desarrollado por la comunidad DEVS PROJECT" />
     <meta property="og:description" content="Simulador de CPU y editor para escribir código, ver traza y microoperaciones en tiempo real." />
     <meta property="og:url" content="{{ url_for('index', _external=True) }}" />
     <meta property="og:image" content="{{ url_for('static', filename='og-preview.jpg', _external=True) }}" />
     <meta property="og:locale" content="es_AR" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="OC Help - Editor Web" />
+    <meta name="twitter:title" content="Desarrollado por la comunidad DEVS PROJECT" />
     <meta name="twitter:description" content="Simulador de CPU y editor para microprogramación y traza." />
     <meta name="twitter:image" content="{{ url_for('static', filename='og-preview.jpg', _external=True) }}" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -23,7 +23,10 @@
   </head>
   <body>
     <header class="topbar">
-      <h1>Simulador CPU - Editor Web</h1>
+      <div class="topbar-brand">
+        <img src="/editor-images/LogoIconoGato.png" width="40" height="40" alt="DEVS PROJECT" />
+        <h1>Desarrollado por la comunidad DEVS PROJECT</h1>
+      </div>
       <div class="top-actions">
         <span style="font-size: 0.85rem; opacity: 0.85;">{{ user_email }}</span>
         <button id="btn-config">Config</button>
