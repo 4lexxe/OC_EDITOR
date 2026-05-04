@@ -289,6 +289,7 @@ function insertLineBelow(text) {
 
 function registerPayload() {
   return {
+    browser_session_id: getBrowserSessionId(),
     code: byId("code").value,
     registers: {
       PC: byId("reg-PC-bin").value,
@@ -612,7 +613,6 @@ function setAutorunEnabled(enabled) {
 
 async function executeOneStep() {
   const payload = registerPayload();
-  payload.browser_session_id = getBrowserSessionId();
   const data = await postJson("/api/execute-step", payload);
   if (!data.ok) {
     setStatus(data.error || "No se pudo ejecutar el paso.", true);
@@ -658,7 +658,8 @@ function applyState(remote) {
 }
 
 async function loadInitialState() {
-  const data = await fetch("/api/state").then((r) => r.json());
+  const sid = encodeURIComponent(getBrowserSessionId());
+  const data = await fetch(`/api/state?browser_session_id=${sid}`).then((r) => r.json());
   if (data.ok) {
     applyState(data.state);
   }

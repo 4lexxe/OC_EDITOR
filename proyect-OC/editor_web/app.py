@@ -6,6 +6,7 @@ import json
 import time
 import shutil
 import threading
+import uuid
 from collections import deque
 from functools import wraps
 from pathlib import Path
@@ -517,7 +518,47 @@ class EditorWebState:
         return self.serialize()
 
 
-STATE = EditorWebState()
+_editor_states_lock = threading.Lock()
+_editor_states: dict[str, EditorWebState] = {}
+
+
+def _get_or_create_flask_session_id() -> str:
+    sid = str(session.get("_editor_sid", "") or "").strip()
+    if sid:
+        return sid
+    sid = uuid.uuid4().hex
+    session["_editor_sid"] = sid
+    return sid
+
+
+def _sanitize_browser_session_id(value: str) -> str:
+    sid = str(value or "").strip()
+    if not sid or len(sid) > 128:
+        return ""
+    return sid
+
+
+def _state_key_from_request(payload: dict | None = None) -> str:
+    browser_sid = ""
+    if isinstance(payload, dict):
+        browser_sid = _sanitize_browser_session_id(payload.get("browser_session_id", ""))
+    if not browser_sid:
+        browser_sid = _sanitize_browser_session_id(request.args.get("browser_session_id", ""))
+    if browser_sid:
+        return f"browser:{browser_sid}"
+    return f"flask:{_get_or_create_flask_session_id()}"
+
+
+def _get_editor_state(payload: dict | None = None) -> EditorWebState:
+    key = _state_key_from_request(payload)
+    with _editor_states_lock:
+        state = _editor_states.get(key)
+        if state is None:
+            state = EditorWebState()
+            _editor_states[key] = state
+        return state
+
+
 _bootstrap_data_from_bundled_if_needed()
 _ensure_default_admins()
 
@@ -890,15 +931,17 @@ def api_keepalive():
 @app.get("/api/state")
 @login_required
 def api_state_get():
-    return jsonify({"ok": True, "state": STATE.serialize()})
+    editor_state = _get_editor_state()
+    return jsonify({"ok": True, "state": editor_state.serialize()})
 
 
 @app.post("/api/state")
 @login_required
 def api_state_set():
     payload = request.get_json(force=True) or {}
-    STATE.load_payload(payload)
-    return jsonify({"ok": True, "state": STATE.serialize()})
+    editor_state = _get_editor_state(payload)
+    editor_state.load_payload(payload)
+    return jsonify({"ok": True, "state": editor_state.serialize()})
 
 
 @app.post("/api/execute-step")
@@ -907,8 +950,9 @@ def api_execute_step():
     payload = request.get_json(force=True) or {}
     code_before = str(payload.get("code", ""))
     browser_sid = str(payload.get("browser_session_id", "") or "").strip()
-    STATE.load_payload(payload)
-    result = STATE.ejecutar_una()
+    editor_state = _get_editor_state(payload)
+    editor_state.load_payload(payload)
+    result = editor_state.ejecutar_una()
     email = str(session.get("user_email", "") or "").strip()
     if browser_sid:
         _append_execution_log(browser_sid, email, code_before, result)
@@ -918,14 +962,17 @@ def api_execute_step():
 @app.post("/api/reset")
 @login_required
 def api_reset():
-    return jsonify({"ok": True, "state": STATE.reiniciar()})
+    payload = request.get_json(force=True) or {}
+    editor_state = _get_editor_state(payload)
+    return jsonify({"ok": True, "state": editor_state.reiniciar()})
 
 
 @app.post("/api/infer")
 @login_required
 def api_infer():
     payload = request.get_json(force=True) or {}
-    code = str(payload.get("code", STATE.code))
+    editor_state = _get_editor_state(payload)
+    code = str(payload.get("code", editor_state.code))
     ops = []
     for linea in code.split("\n"):
         proc = preprocesar_linea_microop(linea)
@@ -972,7 +1019,8 @@ def api_generate():
 @login_required
 def api_trace():
     payload = request.get_json(force=True) or {}
-    code = str(payload.get("code", STATE.code))
+    editor_state = _get_editor_state(payload)
+    code = str(payload.get("code", editor_state.code))
     mode = str(payload.get("trace_mode", "fetch"))
     mar_pc_dec = bool(payload.get("mar_pc_decimal", False))
     compact = bool(payload.get("compact", True))
