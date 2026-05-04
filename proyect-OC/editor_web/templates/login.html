@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OC Help - Login</title>
+    <meta name="description" content="Acceso al editor web y simulador de CPU OC Help (cuentas autorizadas)." />
+    <link rel="canonical" href="{{ url_for('login', _external=True) }}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="OC Help - Editor Web" />
+    <meta property="og:description" content="Simulador de CPU y editor para microprogramación y traza. Iniciá sesión para continuar." />
+    <meta property="og:url" content="{{ url_for('login', _external=True) }}" />
+    <meta property="og:image" content="{{ url_for('static', filename='og-preview.jpg', _external=True) }}" />
+    <meta property="og:locale" content="es_AR" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="OC Help - Editor Web" />
+    <meta name="twitter:description" content="Simulador de CPU y editor web OC Help." />
+    <meta name="twitter:image" content="{{ url_for('static', filename='og-preview.jpg', _external=True) }}" />
     <style>
       body {
         margin: 0;
