@@ -29,6 +29,7 @@
       </div>
       <div class="top-actions">
         <span style="font-size: 0.85rem; opacity: 0.85;">{{ user_email }}</span>
+        <button type="button" id="btn-tutorial">Modo tutorial</button>
         <button id="btn-config">Config</button>
         <button id="btn-run-step">Ejecutar 1 instrucción</button>
         <button id="btn-reset">Reiniciar</button>
@@ -118,8 +119,10 @@
 
     <section class="actions">
       <div class="infer">
-        <button id="btn-infer">Inferir instrucción</button>
-        <button id="btn-copy-infer">Copiar instrucción</button>
+        <div class="infer-actions">
+          <button type="button" id="btn-infer">Inferir instrucción</button>
+          <button type="button" id="btn-copy-infer">Copiar instrucción</button>
+        </div>
         <p id="pc-line"></p>
         <p id="infer-text"></p>
       </div>
@@ -142,6 +145,51 @@
         <p id="gen-result"></p>
       </div>
     </section>
+
+    <dialog id="tutorial-modal" class="tutorial-modal" aria-labelledby="tutorial-title">
+      <div class="tutorial-card">
+        <h2 id="tutorial-title">Guía rápida del editor</h2>
+        <div class="tutorial-body">
+          <p>
+            Este simulador te deja escribir <strong>microoperaciones</strong> (pasos que mueven datos entre registros, memoria y la ALU), ejecutar de a un paso y ver la <strong>traza</strong> al costado.
+          </p>
+          <h3>El editor de código</h3>
+          <p>
+            Escribí una microoperación por línea. Podés usar comentarios al final de línea con <code>;</code>, <code>//</code> o <code>#</code>.
+          </p>
+          <h3>Qué significa la flecha <code>-&gt;</code></h3>
+          <p>
+            La flecha es una <strong>asignación</strong>: lo que está a la <strong>derecha</strong> queda con el resultado de lo que está a la <strong>izquierda</strong> (como en muchos apuntes de organización de computadoras).
+          </p>
+          <pre class="tutorial-code">ACC+1 -&gt; ACC     ; incrementa el acumulador
+GPR -&gt; ACC       ; copia GPR al acumulador
+PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
+          <h3>Instrucciones que podés tipear</h3>
+          <p>
+            Algunos ejemplos válidos (mayúsculas o minúsculas, según el simulador): sumas, copias entre <code>ACC</code>, <code>GPR</code>, <code>M</code>, <code>MAR</code>, <code>PC</code>, <code>OPR</code>, rotaciones <code>ROL</code>/<code>ROR</code> con <code>F</code>, y accesos con <code>GPR(AD)</code> / <code>GPR(OP)</code>. Si empezás a escribir, aparece autocompletado con <kbd>Tab</kbd> o flechas.
+          </p>
+          <h3>Inferir y copiar</h3>
+          <p>
+            <strong>Inferir instrucción</strong> intenta reconocer la instrucción de máquina asociada al fragmento de código donde está el PC. <strong>Copiar instrucción</strong> lleva esa inferencia al portapapeles para pegarla en otro lado.
+          </p>
+          <h3>Ejecutar y reiniciar</h3>
+          <p>
+            <strong>Ejecutar 1 instrucción</strong> avanza un paso en la simulación. <strong>Reiniciar</strong> vuelve al estado inicial de registros y memoria.
+          </p>
+          <h3>Generar microoperaciones</h3>
+          <p>
+            Abajo podés escribir una operación de alto nivel (por ejemplo <code>ACC &lt;- ACC - F</code>), elegir el modo de direccionamiento si aplica y pulsar <strong>Generar</strong> para rellenar el editor con la secuencia de microoperaciones.
+          </p>
+          <h3>Traza y memoria</h3>
+          <p>
+            El panel derecho muestra el historial de microoperaciones y podés cambiar la vista (fetch + editor, etc.). Los paneles de memoria permiten editar celdas en hexadecimal según la interfaz.
+          </p>
+        </div>
+        <div class="tutorial-footer">
+          <button type="button" id="btn-tutorial-done" class="tutorial-primary">Entendido</button>
+        </div>
+      </div>
+    </dialog>
 
     <dialog id="config-modal" class="config-modal">
       <div class="config-card">

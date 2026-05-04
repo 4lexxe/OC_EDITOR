@@ -47,6 +47,21 @@ const autocompleteState = {
 };
 
 const FONT_SIZE_KEY = "editor_web_font_size";
+const TUTORIAL_SEEN_KEY = "editor_web_tutorial_seen_v1";
+
+function openTutorialModal() {
+  const dlg = byId("tutorial-modal");
+  dlg.showModal();
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      byId("btn-tutorial-done").focus();
+    });
+  });
+}
+
+function markTutorialSeen() {
+  localStorage.setItem(TUTORIAL_SEEN_KEY, "1");
+}
 
 function escapeHtml(text) {
   return String(text)
@@ -585,6 +600,15 @@ function initEvents() {
     await refreshTrace();
   });
 
+  byId("btn-tutorial").addEventListener("click", () => {
+    openTutorialModal();
+  });
+
+  byId("btn-tutorial-done").addEventListener("click", () => {
+    markTutorialSeen();
+    byId("tutorial-modal").close();
+  });
+
   byId("btn-config").addEventListener("click", () => {
     byId("config-modal").showModal();
   });
@@ -612,4 +636,8 @@ function initEvents() {
 }
 
 initEvents();
-loadInitialState();
+loadInitialState().then(() => {
+  if (!localStorage.getItem(TUTORIAL_SEEN_KEY)) {
+    openTutorialModal();
+  }
+});
