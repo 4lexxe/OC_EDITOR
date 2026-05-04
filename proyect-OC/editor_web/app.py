@@ -38,9 +38,18 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
-# Vacío = cualquier dominio (Gmail, etc.) si el correo está en allowed_users y verificado en Google.
-# Para limitar a un solo dominio: ALLOWED_DOMAIN=fi.unju.edu.ar
-ALLOWED_DOMAIN = (os.environ.get("ALLOWED_DOMAIN") or "").strip().lower()
+# Dominio del correo (opcional). Vacío / * / any = acepta Gmail y cualquier dominio si el correo está en allowed_users.
+# En Render u otros hosts suele quedar ALLOWED_DOMAIN=fi.unju.edu.ar: borrala, poné ALLOWED_DOMAIN=* o ALLOW_ALL_EMAIL_DOMAINS=1
+def _resolved_allowed_domain() -> str:
+    if os.environ.get("ALLOW_ALL_EMAIL_DOMAINS", "").strip().lower() in ("1", "true", "yes", "on"):
+        return ""
+    raw = (os.environ.get("ALLOWED_DOMAIN") or "").strip().lower()
+    if not raw or raw in ("*", "any", "-", "none", "off", "false"):
+        return ""
+    return raw
+
+
+ALLOWED_DOMAIN = _resolved_allowed_domain()
 ADMIN_PATH = os.environ.get("EDITOR_WEB_ADMIN_PATH", "/_internal/access-control")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
 
