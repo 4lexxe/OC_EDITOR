@@ -12,9 +12,12 @@
         color: #e2e8f0;
       }
       main {
-        max-width: 900px;
+        max-width: 1180px;
         margin: 2rem auto;
         padding: 1rem;
+      }
+      h1, h2, h3 {
+        margin-top: 0;
       }
       .card {
         background: #111827;
@@ -22,11 +25,15 @@
         border-radius: 14px;
         padding: 1rem;
         margin-bottom: 1rem;
+        box-shadow: 0 12px 28px rgba(2, 6, 23, 0.18);
       }
       .row {
         display: flex;
         gap: 0.5rem;
         flex-wrap: wrap;
+      }
+      .row.align-center {
+        align-items: center;
       }
       input[type="email"] {
         flex: 1 1 320px;
@@ -46,6 +53,17 @@
       }
       button.secondary {
         background: #475569;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      input[type="search"],
+      select {
+        background: #0b1223;
+        color: #dbeafe;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
       }
       table {
         width: 100%;
@@ -87,6 +105,55 @@
       .console-sm {
         max-height: 220px;
       }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(120px, 1fr));
+        gap: 0.6rem;
+        margin: 0.8rem 0;
+      }
+      .stat-box {
+        background: #0b1223;
+        border: 1px solid #334155;
+        border-radius: 10px;
+        padding: 0.6rem;
+      }
+      .stat-box .k {
+        font-size: 0.78rem;
+        color: #94a3b8;
+      }
+      .stat-box .v {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 0.2rem;
+      }
+      .compact-table td,
+      .compact-table th {
+        padding: 0.4rem 0.3rem;
+        font-size: 0.86rem;
+      }
+      .selected-row {
+        background: #172036;
+      }
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin: 0.6rem 0 0.8rem;
+      }
+      .toolbar .grow {
+        flex: 1 1 220px;
+      }
+      .pill {
+        border: 1px solid #334155;
+        background: #0b1223;
+        color: #cbd5e1;
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+        font-size: 0.78rem;
+      }
+      .muted {
+        color: #94a3b8;
+      }
       .warn-box {
         border: 1px solid #b45309;
         background: #1c1917;
@@ -98,6 +165,16 @@
       a {
         color: #93c5fd;
       }
+      @media (max-width: 920px) {
+        main {
+          max-width: 100%;
+          margin: 1rem auto;
+          padding: 0.7rem;
+        }
+        .stats-grid {
+          grid-template-columns: repeat(2, minmax(120px, 1fr));
+        }
+      }
     </style>
   </head>
   <body>
@@ -105,6 +182,11 @@
       <section class="card">
         <h1>Control de acceso del editor web</h1>
         <p>Sesión: <b>{{ user_email }}</b></p>
+        <div class="row">
+          <span class="pill">Panel admin</span>
+          <span class="pill">Auditoría</span>
+          <span class="pill">Gestión de accesos</span>
+        </div>
         {% if domain %}
         <p>Solo se aceptan cuentas del dominio <b>@{{ domain }}</b>.</p>
         {% else %}
@@ -141,12 +223,41 @@
       <section class="card">
         <h2>Registro de ejecuciones por sesión</h2>
         <p class="small">Solo administradores pueden ver este historial. Cada sesión de navegador se etiqueta como “Usuario N”.</p>
-        <div class="row">
+        <div class="row align-center">
           <button type="button" class="secondary" id="btn-refresh-exec-log">Actualizar registros</button>
           <button type="button" id="btn-export-exec-log">Exportar JSON</button>
         </div>
+        <div class="stats-grid">
+          <div class="stat-box"><div class="k">Sesiones</div><div class="v" id="exec-stat-sessions">0</div></div>
+          <div class="stat-box"><div class="k">Ejecuciones</div><div class="v" id="exec-stat-total">0</div></div>
+          <div class="stat-box"><div class="k">Autenticadas</div><div class="v" id="exec-stat-auth">0</div></div>
+          <div class="stat-box"><div class="k">Anónimas</div><div class="v" id="exec-stat-anon">0</div></div>
+        </div>
         <p class="status" id="exec-log-status"></p>
-        <pre class="console console-sm" id="execution-log-console">Cargando…</pre>
+        <div class="toolbar">
+          <input class="grow" type="search" id="execution-search" placeholder="Buscar por sesión, usuario o email..." />
+          <select id="execution-type-filter">
+            <option value="all">Todos los tipos</option>
+            <option value="authenticated">Solo autenticadas</option>
+            <option value="anonymous">Solo anónimas</option>
+          </select>
+        </div>
+        <table class="compact-table">
+          <thead>
+            <tr>
+              <th>Sesión</th>
+              <th>Tipo</th>
+              <th>Usuario/Email</th>
+              <th>Ejecuciones</th>
+              <th>Última actividad</th>
+            </tr>
+          </thead>
+          <tbody id="execution-log-body">
+            <tr><td colspan="5">Cargando…</td></tr>
+          </tbody>
+        </table>
+        <h3 style="margin-top:0.9rem;">Detalle de sesión</h3>
+        <pre class="console console-sm" id="execution-log-console">Seleccioná una sesión para ver sus ejecuciones.</pre>
       </section>
 
       <section class="card">
@@ -161,6 +272,9 @@
 
       <section class="card">
         <h2>Usuarios habilitados</h2>
+        <div class="toolbar">
+          <input class="grow" type="search" id="users-search" placeholder="Filtrar usuarios por email..." />
+        </div>
         <table>
           <thead>
             <tr>
@@ -270,7 +384,16 @@
           </tr>
         `).join("");
         document.getElementById("login-required").checked = Boolean(data.login_required);
+        applyUsersFilter();
       }
+      function applyUsersFilter() {
+        const q = (document.getElementById("users-search").value || "").trim().toLowerCase();
+        document.querySelectorAll("#users-body tr[data-email]").forEach((row) => {
+          const email = String(row.dataset.email || "").toLowerCase();
+          row.style.display = !q || email.includes(q) ? "" : "none";
+        });
+      }
+
 
       document.getElementById("btn-save-security").addEventListener("click", async () => {
         const loginRequired = document.getElementById("login-required").checked;
@@ -322,29 +445,117 @@
         el.style.color = isError ? "#fca5a5" : "#cbd5e1";
       }
 
+      function renderExecutionSessionDetail(session) {
+        const detailEl = document.getElementById("execution-log-console");
+        if (!session) {
+          detailEl.textContent = "Seleccioná una sesión para ver sus ejecuciones.";
+          return;
+        }
+        const executions = Array.isArray(session.executions) ? session.executions : [];
+        if (!executions.length) {
+          detailEl.textContent = "Esta sesión no tiene ejecuciones.";
+          return;
+        }
+        const lines = [];
+        lines.push(`Sesión: ${session.label || "-"}`);
+        lines.push(`ID navegador: ${session.browser_session_id || "-"}`);
+        lines.push(`Tipo: ${session.is_authenticated ? "Autenticada" : "Anónima"}`);
+        lines.push(`Usuario: ${session.user_display || session.user_email || "Anónimo"}`);
+        lines.push(`Creada: ${session.created_at || "-"}`);
+        lines.push(`Última: ${session.last_execution_at || "-"}`);
+        lines.push("".padEnd(64, "-"));
+        executions.slice().reverse().forEach((entry, idx) => {
+          lines.push(`#${executions.length - idx} | ${entry.at || "-"} | PC=${entry.pc_counter_after ?? "-"} | ${entry.status_after || "-"}`);
+          lines.push((entry.code_snapshot || "").trim() || "(sin código)");
+          lines.push("".padEnd(64, "-"));
+        });
+        detailEl.textContent = lines.join("\n");
+      }
+
       async function refreshExecutionLog() {
-        const el = document.getElementById("execution-log-console");
+        const tbody = document.getElementById("execution-log-body");
         const res = await fetch("/api/admin/execution-logs");
         const data = await res.json();
         if (!data.ok) {
-          el.textContent = data.error || "No se pudo cargar el registro.";
-          setExecLogStatus(el.textContent, true);
+          tbody.innerHTML = `<tr><td colspan="5">${data.error || "No se pudo cargar el registro."}</td></tr>`;
+          renderExecutionSessionDetail(null);
+          setExecLogStatus(data.error || "No se pudo cargar el registro.", true);
           return;
         }
-        const sessions = Object.values((data.data && data.data.sessions) || {});
-        sessions.sort((a, b) => String(b.last_execution_at || "").localeCompare(String(a.last_execution_at || "")));
-        const lines = sessions.map((s) => {
-          const count = Array.isArray(s.executions) ? s.executions.length : 0;
-          return `${s.label || "Usuario"} | ${s.user_email || "sin email"} | ejecuciones: ${count} | última: ${s.last_execution_at || "-"}`;
+        const sessions = Object.values((data.data && data.data.sessions) || {}).map((s) => ({
+          ...s,
+          executions: Array.isArray(s.executions) ? s.executions : [],
+          is_authenticated: Boolean(s.is_authenticated || s.user_email),
+        }));
+        const q = (document.getElementById("execution-search").value || "").trim().toLowerCase();
+        const type = document.getElementById("execution-type-filter").value;
+        const visibleSessions = sessions.filter((s) => {
+          const t = s.is_authenticated ? "authenticated" : "anonymous";
+          if (type !== "all" && t !== type) {
+            return false;
+          }
+          if (!q) {
+            return true;
+          }
+          const hay = `${s.label || ""} ${s.user_display || ""} ${s.user_email || ""}`.toLowerCase();
+          return hay.includes(q);
         });
-        el.textContent = lines.length ? lines.join("\n") : "(sin ejecuciones aún)";
-        setExecLogStatus(`Sesiones: ${sessions.length}`, false);
+        sessions.sort((a, b) => String(b.last_execution_at || "").localeCompare(String(a.last_execution_at || "")));
+        const totalExec = sessions.reduce((acc, s) => acc + s.executions.length, 0);
+        const authCount = sessions.filter((s) => s.is_authenticated).length;
+        const anonCount = Math.max(0, sessions.length - authCount);
+
+        document.getElementById("exec-stat-sessions").textContent = String(sessions.length);
+        document.getElementById("exec-stat-total").textContent = String(totalExec);
+        document.getElementById("exec-stat-auth").textContent = String(authCount);
+        document.getElementById("exec-stat-anon").textContent = String(anonCount);
+
+        if (!visibleSessions.length) {
+          tbody.innerHTML = `<tr><td colspan="5">(sin ejecuciones aún)</td></tr>`;
+          renderExecutionSessionDetail(null);
+          setExecLogStatus("No hay sesiones para ese filtro.", false);
+          return;
+        }
+
+        tbody.innerHTML = visibleSessions.map((s, idx) => `
+          <tr data-exec-idx="${idx}">
+            <td>${s.label || "Usuario"}</td>
+            <td>${s.is_authenticated ? "Autenticada" : "Anónima"}</td>
+            <td>${s.user_display || s.user_email || "Anónimo"}</td>
+            <td>${s.executions.length}</td>
+            <td>${s.last_execution_at || "-"}</td>
+          </tr>
+        `).join("");
+
+        const selectRow = (idx) => {
+          tbody.querySelectorAll("tr").forEach((tr) => tr.classList.remove("selected-row"));
+          const row = tbody.querySelector(`tr[data-exec-idx="${idx}"]`);
+          if (row) {
+            row.classList.add("selected-row");
+          }
+          renderExecutionSessionDetail(visibleSessions[idx]);
+        };
+
+        tbody.querySelectorAll("tr[data-exec-idx]").forEach((row) => {
+          row.addEventListener("click", () => {
+            const idx = Number(row.dataset.execIdx);
+            if (!Number.isNaN(idx)) {
+              selectRow(idx);
+            }
+          });
+        });
+
+        selectRow(0);
+        setExecLogStatus(`Sesiones visibles: ${visibleSessions.length} | Totales: ${sessions.length} | Ejecuciones: ${totalExec}`, false);
       }
 
       document.getElementById("btn-refresh-exec-log").addEventListener("click", refreshExecutionLog);
       document.getElementById("btn-export-exec-log").addEventListener("click", () => {
         window.location.href = "/api/admin/execution-logs/export";
       });
+      document.getElementById("execution-search").addEventListener("input", refreshExecutionLog);
+      document.getElementById("execution-type-filter").addEventListener("change", refreshExecutionLog);
+      document.getElementById("users-search").addEventListener("input", applyUsersFilter);
       refreshExecutionLog();
 
       document.getElementById("users-body").addEventListener("click", async (event) => {

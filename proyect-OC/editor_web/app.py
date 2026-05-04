@@ -203,14 +203,16 @@ def _append_execution_log(browser_session_id: str, user_email: str, code_snapsho
     if not sid or len(sid) > 128:
         return
     email = _normalize_email(user_email)
-    if not email:
-        return
     now = datetime.now(timezone.utc).isoformat()
+    is_authenticated = bool(email)
+    display_name = email if email else "Anónimo"
     snap = str(code_snapshot or "")
     if len(snap) > 200_000:
         snap = snap[:200000] + "\n... [truncado]"
     entry = {
         "at": now,
+        "auth_type": "authenticated" if is_authenticated else "anonymous",
+        "user_display": display_name,
         "code_snapshot": snap,
         "pc_counter_after": state_after.get("pc_counter"),
         "status_after": str(state_after.get("status", "") or ""),
@@ -226,11 +228,15 @@ def _append_execution_log(browser_session_id: str, user_email: str, code_snapsho
                 "label": f"Usuario {n}",
                 "browser_session_id": sid,
                 "user_email": email,
+                "is_authenticated": is_authenticated,
+                "user_display": display_name,
                 "created_at": now,
                 "executions": [],
             }
         sess = sessions[sid]
         sess["user_email"] = email
+        sess["is_authenticated"] = is_authenticated
+        sess["user_display"] = display_name
         sess["last_execution_at"] = now
         sess.setdefault("executions", []).append(entry)
         _save_execution_logs(data)
@@ -904,7 +910,7 @@ def api_execute_step():
     STATE.load_payload(payload)
     result = STATE.ejecutar_una()
     email = str(session.get("user_email", "") or "").strip()
-    if browser_sid and email:
+    if browser_sid:
         _append_execution_log(browser_sid, email, code_before, result)
     return jsonify({"ok": True, "state": result})
 
