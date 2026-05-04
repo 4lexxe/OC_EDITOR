@@ -102,7 +102,12 @@
       <section class="card">
         <h1>Control de acceso del editor web</h1>
         <p>Sesión: <b>{{ user_email }}</b></p>
+        {% if domain %}
         <p>Solo se aceptan cuentas del dominio <b>@{{ domain }}</b>.</p>
+        {% else %}
+        <p>Se acepta <b>cualquier correo</b> verificado con Google (Gmail, Outlook, etc.) si el correo exacto está en la lista de usuarios habilitados.</p>
+        <p class="small">Para limitar a un dominio (ej. institucional), definí <code>ALLOWED_DOMAIN</code> en el entorno.</p>
+        {% endif %}
         <div class="row">
           <label><input type="checkbox" id="login-required" {% if login_required %}checked{% endif %} /> Login obligatorio para usar el editor web</label>
           <button id="btn-save-security" class="secondary">Guardar configuración</button>
@@ -133,7 +138,7 @@
       <section class="card">
         <h2>Agregar o actualizar usuario</h2>
         <div class="row">
-          <input type="email" id="email" placeholder="usuario@{{ domain }}" />
+          <input type="email" id="email" placeholder="{% if domain %}usuario@{{ domain }}{% else %}correo@gmail.com{% endif %}" />
           <label><input type="checkbox" id="is_admin" /> Admin</label>
           <button id="btn-add">Guardar</button>
         </div>

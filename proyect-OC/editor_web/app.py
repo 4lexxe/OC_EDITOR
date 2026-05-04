@@ -38,7 +38,9 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
-ALLOWED_DOMAIN = os.environ.get("ALLOWED_DOMAIN", "fi.unju.edu.ar").lower()
+# Vacío = cualquier dominio (Gmail, etc.) si el correo está en allowed_users y verificado en Google.
+# Para limitar a un solo dominio: ALLOWED_DOMAIN=fi.unju.edu.ar
+ALLOWED_DOMAIN = (os.environ.get("ALLOWED_DOMAIN") or "").strip().lower()
 ADMIN_PATH = os.environ.get("EDITOR_WEB_ADMIN_PATH", "/_internal/access-control")
 GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
 
@@ -73,7 +75,17 @@ def _normalize_email(value: str) -> str:
 
 
 def _is_domain_allowed(email: str) -> bool:
-    return email.endswith(f"@{ALLOWED_DOMAIN}")
+    """Si ALLOWED_DOMAIN está vacío o es '*' / 'any', acepta cualquier correo bien formado."""
+    email = _normalize_email(email)
+    if not email or "@" not in email:
+        return False
+    local, _, host = email.partition("@")
+    if not local or not host:
+        return False
+    dom = ALLOWED_DOMAIN
+    if not dom or dom in ("*", "any"):
+        return True
+    return email.endswith(f"@{dom}")
 
 
 def _load_access_data() -> dict:
@@ -173,7 +185,7 @@ def _ensure_default_admins() -> None:
     data = _load_access_data()
     changed = False
     for email in DEFAULT_ADMIN_EMAILS:
-        if not _is_domain_allowed(email):
+        if ALLOWED_DOMAIN and not _is_domain_allowed(email):
             continue
         user = data["users"].get(email, {"is_admin": False, "is_banned": False})
         if not user.get("is_admin"):
@@ -546,9 +558,17 @@ def auth_google_callback():
     name = str(userinfo.get("name", "") or "")
     picture = str(userinfo.get("picture", "") or "")
     verified = bool(userinfo.get("email_verified"))
-    if not email or not verified or not _is_domain_allowed(email):
+    if not email or not verified:
         session.clear()
-        return "Solo se permite acceso con cuentas @fi.unju.edu.ar verificadas.", 403
+        return "Se requiere iniciar sesión con Google usando un correo verificado.", 403
+    if not _is_domain_allowed(email):
+        session.clear()
+        if ALLOWED_DOMAIN:
+            return (
+                f"Solo se permite acceso con cuentas @{ALLOWED_DOMAIN} verificadas.",
+                403,
+            )
+        return "El correo devuelto por Google no es válido.", 403
     access = _get_user_access(email)
     if not access or bool(access.get("is_banned")):
         session.clear()

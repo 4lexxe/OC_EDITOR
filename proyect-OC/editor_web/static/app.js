@@ -48,6 +48,76 @@ const autocompleteState = {
 
 const FONT_SIZE_KEY = "editor_web_font_size";
 const TUTORIAL_SEEN_KEY = "editor_web_tutorial_seen_v1";
+const THEME_KEY = "editor_web_theme_dark";
+
+const editorHistory = {
+  stack: [],
+  idx: -1,
+  maxLen: 120,
+  pushing: false,
+};
+
+function pushEditorHistory(text) {
+  if (editorHistory.pushing) {
+    return;
+  }
+  const prev = editorHistory.stack[editorHistory.idx];
+  if (prev === text) {
+    return;
+  }
+  editorHistory.stack = editorHistory.stack.slice(0, editorHistory.idx + 1);
+  editorHistory.stack.push(text);
+  if (editorHistory.stack.length > editorHistory.maxLen) {
+    editorHistory.stack.shift();
+  }
+  editorHistory.idx = editorHistory.stack.length - 1;
+}
+
+function resetEditorHistory(text) {
+  editorHistory.stack = [text];
+  editorHistory.idx = 0;
+}
+
+function applyEditorHistoryValue(text) {
+  const ta = byId("code");
+  editorHistory.pushing = true;
+  ta.value = text;
+  editorHistory.pushing = false;
+  updateLineNumbers();
+  scheduleLiveUpdate();
+}
+
+function setThemeDark(dark) {
+  const root = document.documentElement;
+  if (dark) {
+    root.style.setProperty("--bg-base", "#0d1117");
+    root.style.setProperty("--bg-surface", "#161b22");
+    root.style.setProperty("--bg-panel", "#1c2330");
+    root.style.setProperty("--bg-panel-header", "#1a2233");
+    root.style.setProperty("--bg-input", "#0d1117");
+    root.style.setProperty("--bg-hover", "#21293a");
+    root.style.setProperty("--border", "#2a3446");
+    root.style.setProperty("--border-light", "#1e2d3d");
+    root.style.setProperty("--text-primary", "#e6edf3");
+    root.style.setProperty("--text-secondary", "#8b949e");
+    root.style.setProperty("--text-muted", "#4b6280");
+    root.style.setProperty("--text-code", "#79c0ff");
+  } else {
+    root.style.setProperty("--bg-base", "#f6f8fa");
+    root.style.setProperty("--bg-surface", "#ffffff");
+    root.style.setProperty("--bg-panel", "#f0f2f5");
+    root.style.setProperty("--bg-panel-header", "#e8eaed");
+    root.style.setProperty("--bg-input", "#ffffff");
+    root.style.setProperty("--bg-hover", "#e0e7ef");
+    root.style.setProperty("--border", "#d0d7de");
+    root.style.setProperty("--border-light", "#e0e7ef");
+    root.style.setProperty("--text-primary", "#1f2328");
+    root.style.setProperty("--text-secondary", "#57606a");
+    root.style.setProperty("--text-muted", "#8c959f");
+    root.style.setProperty("--text-code", "#0550ae");
+  }
+  localStorage.setItem(THEME_KEY, dark ? "1" : "0");
+}
 
 function openTutorialModal() {
   const dlg = byId("tutorial-modal");
@@ -152,9 +222,14 @@ function syncEditorMetrics() {
 }
 
 function setStatus(text, isError = false) {
-  const bar = byId("statusbar");
-  bar.textContent = text || "";
-  bar.classList.toggle("error", Boolean(isError));
+  const logText = byId("log-text");
+  const logBar = byId("log-bar");
+  if (logText) {
+    logText.textContent = text || "";
+  }
+  if (logBar) {
+    logBar.classList.toggle("error", Boolean(isError));
+  }
 }
 
 function applyEditorFontSize(size) {
@@ -192,6 +267,7 @@ function replaceCurrentLine(newText) {
   code.setRangeText(newText, lineStart, lineEnd, "end");
   updateLineNumbers();
   scheduleLiveUpdate();
+  pushEditorHistory(code.value);
   code.focus();
 }
 
@@ -202,6 +278,7 @@ function insertLineBelow(text) {
   code.setRangeText(`${prefix}${text}`, lineEnd, lineEnd, "end");
   updateLineNumbers();
   scheduleLiveUpdate();
+  pushEditorHistory(code.value);
   code.focus();
 }
 
@@ -299,13 +376,23 @@ function renderResults(registers) {
       <span>F: ${registers.F}</span>
     `;
   }
-  byId("pc-line").textContent = `Línea actual (PC interno): ${Number(state.pc_counter) + 1}`;
+  const lineNo = Number(state.pc_counter) + 1;
+  const sb = byId("sidebar-pc");
+  if (sb) {
+    sb.textContent = String(lineNo);
+  }
 }
 
 function renderTrace(rows) {
-  const tbody = byId("trace-body");
-  tbody.innerHTML = rows.map((r) => `
-    <tr>
+  const tbody = byId("trace-rows");
+  if (!tbody) {
+    return;
+  }
+  const list = rows || [];
+  tbody.innerHTML = list.map((r, i) => {
+    const isLast = i === list.length - 1 && list.length > 0;
+    const trClass = isLast ? "row-highlight" : "";
+    return `<tr class="${trClass}">
       <td>${r.ciclo || ""}</td>
       <td>${r.micro || ""}</td>
       <td>${r.PC || ""}</td>
@@ -317,8 +404,8 @@ function renderTrace(rows) {
       <td>${r.ACC || ""}</td>
       <td>${r.F || ""}</td>
       <td>${r.M || ""}</td>
-    </tr>
-  `).join("");
+    </tr>`;
+  }).join("");
 }
 
 function updateLineNumbers() {
@@ -378,7 +465,8 @@ function showAutocomplete() {
   popup.classList.remove("hidden");
   const code = byId("code");
   const caret = getCaretCoordinates(code, code.selectionStart);
-  const editorBoxRect = document.querySelector(".editor-box").getBoundingClientRect();
+  const editorPanel = document.querySelector(".editor-panel");
+  const editorBoxRect = (editorPanel || document.querySelector(".editor-box")).getBoundingClientRect();
   const left = Math.max(58, caret.left - editorBoxRect.left + 8);
   const top = Math.max(80, caret.bottom - editorBoxRect.top + 6);
   popup.style.left = `${left}px`;
@@ -453,13 +541,30 @@ async function refreshTrace() {
 }
 
 async function refreshInference() {
+  const instEl = byId("infer-instruction");
+  const modeEl = byId("infer-mode");
   const data = await postJson("/api/infer", { code: byId("code").value });
   if (!data.ok) {
-    byId("infer-text").textContent = "Sin inferencia.";
+    if (instEl) {
+      instEl.textContent = "—";
+      instEl.classList.add("infer-step-value--empty");
+    }
+    if (modeEl) {
+      modeEl.textContent = "—";
+      modeEl.classList.add("infer-step-value--empty");
+    }
     return;
   }
-  const text = data.mode ? `Instrucción: ${data.inference}  |  Modo: ${data.mode}` : data.inference;
-  byId("infer-text").textContent = text;
+  const rawInstr = (data.inference || "").trim();
+  const rawMode = (data.mode || "").trim();
+  if (instEl) {
+    instEl.textContent = rawInstr || "—";
+    instEl.classList.toggle("infer-step-value--empty", !rawInstr);
+  }
+  if (modeEl) {
+    modeEl.textContent = rawMode || "—";
+    modeEl.classList.toggle("infer-step-value--empty", !rawMode);
+  }
 }
 
 function applyState(remote) {
@@ -468,6 +573,7 @@ function applyState(remote) {
   state.registers = remote.registers;
   state.memory = remote.memory;
   byId("code").value = remote.code;
+  resetEditorHistory(remote.code || "");
   updateLineNumbers();
   renderRegisters(remote.registers, remote.registers_hex);
   renderMemory(remote.memory, remote.memory_hex, "memory-edit", false);
@@ -490,6 +596,7 @@ async function loadInitialState() {
 }
 
 let updateTimer = null;
+
 function scheduleLiveUpdate() {
   if (updateTimer) {
     clearTimeout(updateTimer);
@@ -505,10 +612,21 @@ function initEvents() {
   const savedFontSize = localStorage.getItem(FONT_SIZE_KEY);
   applyEditorFontSize(savedFontSize ? Number(savedFontSize) : 16);
 
+  const themeDark = localStorage.getItem(THEME_KEY);
+  setThemeDark(themeDark === null || themeDark === "1");
+
+  let historyTimer = null;
   byId("code").addEventListener("input", () => {
     updateLineNumbers();
     updateAutocompleteFromEditor();
     scheduleLiveUpdate();
+    if (historyTimer) {
+      clearTimeout(historyTimer);
+    }
+    historyTimer = setTimeout(() => {
+      historyTimer = null;
+      pushEditorHistory(byId("code").value);
+    }, 320);
   });
   byId("code").addEventListener("scroll", () => {
     byId("line-numbers").scrollTop = byId("code").scrollTop;
@@ -524,6 +642,17 @@ function initEvents() {
     if (event.key === "Tab" && !byId("autocomplete-popup").classList.contains("hidden")) {
       event.preventDefault();
       applyAutocompleteSelection();
+      return;
+    }
+    if (event.key === "Tab" && byId("autocomplete-popup").classList.contains("hidden")) {
+      event.preventDefault();
+      const ta = byId("code");
+      const s = ta.selectionStart;
+      const e = ta.selectionEnd;
+      ta.setRangeText("  ", s, e, "end");
+      updateLineNumbers();
+      scheduleLiveUpdate();
+      pushEditorHistory(ta.value);
       return;
     }
     if (event.key === "ArrowDown" && !byId("autocomplete-popup").classList.contains("hidden")) {
@@ -549,37 +678,12 @@ function initEvents() {
     setTimeout(closeAutocomplete, 120);
   });
 
-  byId("btn-run-step").addEventListener("click", async () => {
-    const data = await postJson("/api/execute-step", registerPayload());
-    if (data.ok) {
-      applyState(data.state);
-      await refreshInference();
-      await refreshTrace();
-    }
-  });
-
   byId("btn-reset").addEventListener("click", async () => {
     const data = await postJson("/api/reset", {});
     if (data.ok) {
       applyState(data.state);
       await refreshInference();
       await refreshTrace();
-    }
-  });
-
-  byId("btn-infer").addEventListener("click", refreshInference);
-  byId("btn-copy-infer").addEventListener("click", async () => {
-    const text = byId("infer-text").textContent.trim();
-    if (!text) {
-      setStatus("No hay instrucción inferida para copiar.", true);
-      return;
-    }
-    const only = text.replace(/^Instrucción:\s*/i, "").split("  |  Modo:")[0].trim();
-    try {
-      await navigator.clipboard.writeText(only);
-      setStatus("Instrucción copiada al portapapeles.");
-    } catch {
-      setStatus("No se pudo copiar al portapapeles.", true);
     }
   });
 
@@ -593,11 +697,99 @@ function initEvents() {
       return;
     }
     byId("code").value = data.ops.join("\n");
+    resetEditorHistory(byId("code").value);
     updateLineNumbers();
     byId("gen-result").textContent = data.message;
     setStatus(data.message);
     await refreshInference();
     await refreshTrace();
+  });
+
+  byId("btn-undo-editor").addEventListener("click", () => {
+    if (editorHistory.idx <= 0) {
+      return;
+    }
+    editorHistory.idx -= 1;
+    applyEditorHistoryValue(editorHistory.stack[editorHistory.idx]);
+  });
+
+  byId("btn-redo-editor").addEventListener("click", () => {
+    if (editorHistory.idx >= editorHistory.stack.length - 1) {
+      return;
+    }
+    editorHistory.idx += 1;
+    applyEditorHistoryValue(editorHistory.stack[editorHistory.idx]);
+  });
+
+  byId("btn-copy-code").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(byId("code").value);
+      setStatus("Código copiado al portapapeles.");
+    } catch {
+      setStatus("No se pudo copiar el código.", true);
+    }
+  });
+
+  byId("btn-fullscreen-editor").addEventListener("click", () => {
+    const panel = document.querySelector(".editor-panel");
+    if (!panel) {
+      return;
+    }
+    if (!document.fullscreenElement) {
+      panel.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen();
+    }
+  });
+
+  const openHelp = () => openTutorialModal();
+  byId("btn-help-top").addEventListener("click", openHelp);
+  byId("btn-infer-help").addEventListener("click", openHelp);
+
+  byId("theme-toggle").addEventListener("click", () => {
+    const isDark = localStorage.getItem(THEME_KEY) !== "0";
+    setThemeDark(!isDark);
+  });
+
+  byId("btn-refresh-trace").addEventListener("click", () => {
+    refreshTrace();
+  });
+
+  byId("btn-copy-mem-trace").addEventListener("click", async () => {
+    const t = byId("trace-memory").textContent.trim();
+    if (!t) {
+      setStatus("No hay texto de memoria para copiar.", true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(t);
+      setStatus("Memoria de traza copiada.");
+    } catch {
+      setStatus("No se pudo copiar.", true);
+    }
+  });
+
+  document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const view = btn.dataset.view;
+      const mem = byId("sec-memory");
+      if (mem) {
+        mem.classList.toggle("hidden-panel", view !== "memory");
+      }
+      if (view === "editor") {
+        byId("sec-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (view === "trace") {
+        byId("sec-trace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (view === "memory") {
+        mem?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (view === "arch") {
+        byId("sec-arch")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (view === "config") {
+        byId("config-modal").showModal();
+      }
+    });
   });
 
   byId("btn-tutorial").addEventListener("click", () => {
