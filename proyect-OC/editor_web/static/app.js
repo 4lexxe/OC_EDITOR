@@ -1027,6 +1027,7 @@ function initEvents() {
         mem.classList.toggle("hidden-panel", view !== "memory");
       }
       if (view === "editor") {
+        setMobileEditorTab("code");
         byId("sec-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "trace") {
         byId("sec-trace")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1076,6 +1077,70 @@ function initEvents() {
   };
   pingKeepalive();
   setInterval(pingKeepalive, KEEPALIVE_MS);
+
+  initMobileShellUi();
+}
+
+function setMobileEditorTab(name) {
+  const key = name || "code";
+  document.body.dataset.mtab = key;
+  document.querySelectorAll(".mobile-primary-tab").forEach((t) => {
+    const on = t.dataset.mtab === key;
+    t.classList.toggle("active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
+  });
+}
+
+function initMobileShellUi() {
+  const tabs = document.querySelectorAll(".mobile-primary-tab");
+  if (tabs.length) {
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const name = btn.dataset.mtab;
+        setMobileEditorTab(name);
+        if (name === "infer") {
+          refreshInference();
+        }
+        if (name === "gen") {
+          byId("gen-expression")?.focus();
+        }
+      });
+    });
+  }
+
+  byId("btn-play-fab-mobile")?.addEventListener("click", () => {
+    byId("btn-play-step")?.click();
+  });
+
+  const moreRoot = document.querySelector(".mobile-topbar-more");
+  const closeMore = () => {
+    if (moreRoot) {
+      moreRoot.removeAttribute("open");
+    }
+  };
+
+  byId("btn-help-top-more")?.addEventListener("click", () => {
+    closeMore();
+    byId("btn-help-top")?.click();
+  });
+  byId("btn-tutorial-more")?.addEventListener("click", () => {
+    closeMore();
+    byId("btn-tutorial")?.click();
+  });
+  byId("btn-config-more")?.addEventListener("click", () => {
+    closeMore();
+    byId("btn-config")?.click();
+  });
+  byId("btn-reset-more")?.addEventListener("click", () => {
+    closeMore();
+    byId("btn-reset")?.click();
+  });
+
+  document.querySelector(".mobile-topbar-more-panel")?.addEventListener("click", (event) => {
+    if (event.target.closest("a.mobile-more-link--danger")) {
+      closeMore();
+    }
+  });
 }
 
 initEvents();
