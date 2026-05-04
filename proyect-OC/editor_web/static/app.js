@@ -51,6 +51,8 @@ const TUTORIAL_SEEN_KEY = "editor_web_tutorial_seen_v1";
 const THEME_KEY = "editor_web_theme_dark";
 const BROWSER_SESSION_ID_KEY = "editor_web_browser_session_id";
 const ADMIN_AUTORUN_KEY = "editor_web_admin_autorun";
+const SESSION_CPU_DRAFT_PREFIX = "editor_web_session_cpu_draft_v2";
+const DRAFT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 const editorFlags = window.__EDITOR_FLAGS__ || {};
 const IS_ADMIN = Boolean(editorFlags.is_admin);
@@ -90,6 +92,7 @@ function applyEditorHistoryValue(text) {
   editorHistory.pushing = false;
   updateLineNumbers();
   scheduleLiveUpdate();
+  schedulePersistSessionDraft();
 }
 
 function setThemeDark(dark) {
@@ -301,6 +304,152 @@ function registerPayload() {
     memory: Array.from({ length: 256 }, (_, i) => byId(`mem-edit-${i}`).value),
     pc_counter: state.pc_counter,
   };
+}
+
+function binStringToUiHex(bits, s) {
+  const raw = (s || "").split("").filter((c) => c === "0" || c === "1").join("");
+  if (bits === 1) {
+    return raw.slice(-1) || "0";
+  }
+  const z = (raw.padStart(bits, "0").slice(-bits) || "0".repeat(bits));
+  const n = parseInt(z, 2) & ((1 << bits) - 1);
+  return n.toString(16).toUpperCase().padStart(3, "0").slice(-3);
+}
+
+function canSnapshotFromUi() {
+  return Boolean(byId("mem-edit-0") && byId("reg-PC-bin"));
+}
+
+function isValidCpuSnapshot(s) {
+  if (!s || typeof s.code !== "string") {
+    return false;
+  }
+  if (typeof s.pc_counter !== "number" || s.pc_counter < 0) {
+    return false;
+  }
+  if (!s.registers || !s.registers_hex || !s.memory || !s.memory_hex) {
+    return false;
+  }
+  if (!["PC", "ACC", "GPR", "F", "M"].every((k) => typeof s.registers[k] === "string")) {
+    return false;
+  }
+  if (!Array.isArray(s.memory) || s.memory.length !== 256) {
+    return false;
+  }
+  if (!Array.isArray(s.memory_hex) || s.memory_hex.length !== 256) {
+    return false;
+  }
+  return true;
+}
+
+function buildFullStateFromUi() {
+  const p = registerPayload();
+  const regHex = {
+    PC: binStringToUiHex(12, p.registers.PC),
+    ACC: binStringToUiHex(12, p.registers.ACC),
+    GPR: binStringToUiHex(12, p.registers.GPR),
+    F: binStringToUiHex(1, p.registers.F),
+    M: binStringToUiHex(12, p.registers.M),
+  };
+  const memoryHex = p.memory.map((cell) => binStringToUiHex(12, cell));
+  return {
+    code: p.code,
+    pc_counter: p.pc_counter,
+    registers: { ...p.registers },
+    registers_hex: regHex,
+    memory: [...p.memory],
+    memory_hex: memoryHex,
+    status: "Listo.",
+    is_error: false,
+  };
+}
+
+function sessionCpuDraftLsKey() {
+  return `${SESSION_CPU_DRAFT_PREFIX}:${getBrowserSessionId()}`;
+}
+
+function clearSessionCpuDraft() {
+  try {
+    localStorage.removeItem(sessionCpuDraftLsKey());
+  } catch {
+    // ignore
+  }
+}
+
+function readSessionCpuDraft() {
+  try {
+    const raw = localStorage.getItem(sessionCpuDraftLsKey());
+    if (!raw) {
+      return null;
+    }
+    const o = JSON.parse(raw);
+    if (!o || o.v !== 2 || !o.state) {
+      return null;
+    }
+    if (typeof o.ts !== "number" || Date.now() - o.ts > DRAFT_MAX_AGE_MS) {
+      return null;
+    }
+    if (o.sid !== getBrowserSessionId()) {
+      return null;
+    }
+    if (!isValidCpuSnapshot(o.state)) {
+      return null;
+    }
+    return o.state;
+  } catch {
+    return null;
+  }
+}
+
+let sessionDraftTimer = null;
+
+function writeSessionCpuDraft() {
+  if (!canSnapshotFromUi()) {
+    return;
+  }
+  const st = buildFullStateFromUi();
+  const payload = {
+    v: 2,
+    ts: Date.now(),
+    sid: getBrowserSessionId(),
+    state: st,
+  };
+  try {
+    localStorage.setItem(sessionCpuDraftLsKey(), JSON.stringify(payload));
+  } catch {
+    // quota / modo privado
+  }
+}
+
+function schedulePersistSessionDraft() {
+  if (sessionDraftTimer) {
+    clearTimeout(sessionDraftTimer);
+  }
+  sessionDraftTimer = setTimeout(() => {
+    sessionDraftTimer = null;
+    writeSessionCpuDraft();
+  }, 650);
+}
+
+function flushSessionDraftNow() {
+  if (sessionDraftTimer) {
+    clearTimeout(sessionDraftTimer);
+    sessionDraftTimer = null;
+  }
+  writeSessionCpuDraft();
+}
+
+function wireDraftPersistenceOnce() {
+  const mem = byId("memory-edit");
+  if (mem && !mem.dataset.draftWired) {
+    mem.dataset.draftWired = "1";
+    mem.addEventListener("input", () => schedulePersistSessionDraft());
+  }
+  const regs = byId("registers");
+  if (regs && !regs.dataset.draftWired) {
+    regs.dataset.draftWired = "1";
+    regs.addEventListener("input", () => schedulePersistSessionDraft());
+  }
 }
 
 function getBrowserSessionId() {
@@ -655,6 +804,8 @@ function applyState(remote) {
   ln.classList.toggle("current-step", true);
   syncEditorMetrics();
   renderHighlightedCode();
+  wireDraftPersistenceOnce();
+  schedulePersistSessionDraft();
 }
 
 async function loadInitialState() {
@@ -662,6 +813,14 @@ async function loadInitialState() {
   const data = await fetch(`/api/state?browser_session_id=${sid}`).then((r) => r.json());
   if (data.ok) {
     applyState(data.state);
+  }
+  const fromDraft = readSessionCpuDraft();
+  if (fromDraft) {
+    applyState(fromDraft);
+    const sync = await postJson("/api/state", registerPayload());
+    if (sync.ok) {
+      applyState(sync.state);
+    }
   }
   await refreshInference();
   await refreshTrace();
@@ -692,6 +851,7 @@ function initEvents() {
     updateLineNumbers();
     updateAutocompleteFromEditor();
     scheduleLiveUpdate();
+    schedulePersistSessionDraft();
     scheduleAdminAutorun();
     if (historyTimer) {
       clearTimeout(historyTimer);
@@ -752,9 +912,11 @@ function initEvents() {
   });
 
   byId("btn-reset").addEventListener("click", async () => {
-    const data = await postJson("/api/reset", {});
+    clearSessionCpuDraft();
+    const data = await postJson("/api/reset", { browser_session_id: getBrowserSessionId() });
     if (data.ok) {
       applyState(data.state);
+      flushSessionDraftNow();
       await refreshInference();
       await refreshTrace();
     }
@@ -774,6 +936,7 @@ function initEvents() {
     updateLineNumbers();
     byId("gen-result").textContent = data.message;
     setStatus(data.message);
+    schedulePersistSessionDraft();
     await refreshInference();
     await refreshTrace();
   });
@@ -903,6 +1066,9 @@ function initEvents() {
     syncEditorMetrics();
     renderHighlightedCode();
   });
+
+  window.addEventListener("pagehide", () => flushSessionDraftNow());
+  window.addEventListener("beforeunload", () => flushSessionDraftNow());
 
   const KEEPALIVE_MS = 8 * 60 * 1000;
   const pingKeepalive = () => {
