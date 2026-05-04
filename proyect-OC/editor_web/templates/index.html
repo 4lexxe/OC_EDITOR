@@ -105,6 +105,14 @@
                   <button type="button" class="action-btn" title="Rehacer" id="btn-redo-editor">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
                   </button>
+                  <button type="button" class="action-btn" title="Ejecutar un paso (Play)" id="btn-play-step">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  {% if is_admin %}
+                  <button type="button" class="action-btn" title="Autorun desactivado" id="btn-autorun-toggle" aria-pressed="false">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l7-5 7 5V3z"/></svg>
+                  </button>
+                  {% endif %}
                   <button type="button" class="action-btn" title="Copiar código" id="btn-copy-code">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
@@ -362,6 +370,9 @@ PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
       </div>
     </dialog>
 
+    <script>
+      window.__EDITOR_FLAGS__ = {{ {"is_admin": is_admin}|tojson }};
+    </script>
     <script src="/static/app.js"></script>
   </body>
 </html>

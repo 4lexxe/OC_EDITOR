@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from bitstring import BitArray
 from authlib.integrations.flask_client import OAuth
-from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 if str(BASE_DIR) not in sys.path:
@@ -68,6 +68,9 @@ DATA_DIR = _resolve_data_dir()
 USERS_FILE = DATA_DIR / "allowed_users.json"
 AUTH_USERS_FILE = DATA_DIR / "authenticated_users.json"
 SECURITY_FILE = DATA_DIR / "security_settings.json"
+EXECUTION_LOGS_FILE = DATA_DIR / "execution_logs.json"
+
+_execution_logs_lock = threading.Lock()
 
 REQUEST_LOG_MAX = max(20, min(500, int(os.environ.get("EDITOR_WEB_REQUEST_LOG_MAX", "120"))))
 _request_audit_log: deque[dict] = deque(maxlen=REQUEST_LOG_MAX)
@@ -170,11 +173,79 @@ def _save_security_settings(settings: dict) -> None:
     SECURITY_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+_EXEC_LOG_EMPTY = {"next_session_label_num": 1, "sessions": {}}
+
+
+def _load_execution_logs() -> dict:
+    if EXECUTION_LOGS_FILE.exists():
+        try:
+            data = json.loads(EXECUTION_LOGS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                if not isinstance(data.get("sessions"), dict):
+                    data["sessions"] = {}
+                try:
+                    data["next_session_label_num"] = max(1, int(data.get("next_session_label_num", 1) or 1))
+                except (TypeError, ValueError):
+                    data["next_session_label_num"] = 1
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return dict(_EXEC_LOG_EMPTY)
+
+
+def _save_execution_logs(data: dict) -> None:
+    EXECUTION_LOGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    EXECUTION_LOGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _append_execution_log(browser_session_id: str, user_email: str, code_snapshot: str, state_after: dict) -> None:
+    sid = str(browser_session_id or "").strip()
+    if not sid or len(sid) > 128:
+        return
+    email = _normalize_email(user_email)
+    if not email:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    snap = str(code_snapshot or "")
+    if len(snap) > 200_000:
+        snap = snap[:200000] + "\n... [truncado]"
+    entry = {
+        "at": now,
+        "code_snapshot": snap,
+        "pc_counter_after": state_after.get("pc_counter"),
+        "status_after": str(state_after.get("status", "") or ""),
+        "registers_after": {k: str(v) for k, v in (state_after.get("registers") or {}).items()},
+    }
+    with _execution_logs_lock:
+        data = _load_execution_logs()
+        sessions = data.setdefault("sessions", {})
+        if sid not in sessions:
+            n = max(1, int(data.get("next_session_label_num", 1) or 1))
+            data["next_session_label_num"] = n + 1
+            sessions[sid] = {
+                "label": f"Usuario {n}",
+                "browser_session_id": sid,
+                "user_email": email,
+                "created_at": now,
+                "executions": [],
+            }
+        sess = sessions[sid]
+        sess["user_email"] = email
+        sess["last_execution_at"] = now
+        sess.setdefault("executions", []).append(entry)
+        _save_execution_logs(data)
+
+
 def _bootstrap_data_from_bundled_if_needed() -> None:
     if DATA_DIR.resolve() == _BUNDLED_DATA_DIR.resolve():
         return
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    for name in ("allowed_users.json", "security_settings.json", "authenticated_users.json"):
+    for name in (
+        "allowed_users.json",
+        "security_settings.json",
+        "authenticated_users.json",
+        "execution_logs.json",
+    ):
         src = _BUNDLED_DATA_DIR / name
         dst = DATA_DIR / name
         if src.exists() and not dst.exists():
@@ -762,6 +833,36 @@ def api_admin_request_log():
     return jsonify({"ok": True, "entries": list(_request_audit_log)})
 
 
+@app.get("/api/admin/execution-logs")
+def api_admin_execution_logs():
+    if not _is_logged_in():
+        return jsonify({"ok": False, "error": "No autenticado."}), 401
+    if not _is_admin():
+        return jsonify({"ok": False, "error": "No autorizado."}), 403
+    with _execution_logs_lock:
+        data = _load_execution_logs()
+    return jsonify({"ok": True, "data": data})
+
+
+@app.get("/api/admin/execution-logs/export")
+def api_admin_execution_logs_export():
+    if not _is_logged_in():
+        return jsonify({"ok": False, "error": "No autenticado."}), 401
+    if not _is_admin():
+        return jsonify({"ok": False, "error": "No autorizado."}), 403
+    with _execution_logs_lock:
+        data = _load_execution_logs()
+    body = json.dumps(data, indent=2, ensure_ascii=False)
+    return Response(
+        body,
+        mimetype="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition": "attachment; filename=execution_logs.json",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.route("/assets/images/<path:filename>")
 @login_required
 def assets_images(filename: str):
@@ -798,8 +899,14 @@ def api_state_set():
 @login_required
 def api_execute_step():
     payload = request.get_json(force=True) or {}
+    code_before = str(payload.get("code", ""))
+    browser_sid = str(payload.get("browser_session_id", "") or "").strip()
     STATE.load_payload(payload)
-    return jsonify({"ok": True, "state": STATE.ejecutar_una()})
+    result = STATE.ejecutar_una()
+    email = str(session.get("user_email", "") or "").strip()
+    if browser_sid and email:
+        _append_execution_log(browser_sid, email, code_before, result)
+    return jsonify({"ok": True, "state": result})
 
 
 @app.post("/api/reset")

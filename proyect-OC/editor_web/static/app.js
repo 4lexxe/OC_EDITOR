@@ -49,6 +49,11 @@ const autocompleteState = {
 const FONT_SIZE_KEY = "editor_web_font_size";
 const TUTORIAL_SEEN_KEY = "editor_web_tutorial_seen_v1";
 const THEME_KEY = "editor_web_theme_dark";
+const BROWSER_SESSION_ID_KEY = "editor_web_browser_session_id";
+const ADMIN_AUTORUN_KEY = "editor_web_admin_autorun";
+
+const editorFlags = window.__EDITOR_FLAGS__ || {};
+const IS_ADMIN = Boolean(editorFlags.is_admin);
 
 const editorHistory = {
   stack: [],
@@ -295,6 +300,20 @@ function registerPayload() {
     memory: Array.from({ length: 256 }, (_, i) => byId(`mem-edit-${i}`).value),
     pc_counter: state.pc_counter,
   };
+}
+
+function getBrowserSessionId() {
+  let sid = localStorage.getItem(BROWSER_SESSION_ID_KEY);
+  if (sid && sid.trim()) {
+    return sid.trim();
+  }
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    sid = window.crypto.randomUUID();
+  } else {
+    sid = `sid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  localStorage.setItem(BROWSER_SESSION_ID_KEY, sid);
+  return sid;
 }
 
 function renderRegisters(registers, registersHex) {
@@ -567,6 +586,58 @@ async function refreshInference() {
   }
 }
 
+let suppressAutorun = false;
+let autorunTimer = null;
+const AUTORUN_DEBOUNCE_MS = 700;
+
+function isAutorunEnabled() {
+  if (!IS_ADMIN) {
+    return false;
+  }
+  return localStorage.getItem(ADMIN_AUTORUN_KEY) === "1";
+}
+
+function setAutorunEnabled(enabled) {
+  if (!IS_ADMIN) {
+    return;
+  }
+  localStorage.setItem(ADMIN_AUTORUN_KEY, enabled ? "1" : "0");
+  const btn = byId("btn-autorun-toggle");
+  if (btn) {
+    btn.classList.toggle("active", enabled);
+    btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    btn.title = enabled ? "Autorun activado" : "Autorun desactivado";
+  }
+}
+
+async function executeOneStep() {
+  const payload = registerPayload();
+  payload.browser_session_id = getBrowserSessionId();
+  const data = await postJson("/api/execute-step", payload);
+  if (!data.ok) {
+    setStatus(data.error || "No se pudo ejecutar el paso.", true);
+    return;
+  }
+  suppressAutorun = true;
+  applyState(data.state);
+  suppressAutorun = false;
+  await refreshInference();
+  await refreshTrace();
+}
+
+function scheduleAdminAutorun() {
+  if (!IS_ADMIN || !isAutorunEnabled() || suppressAutorun) {
+    return;
+  }
+  if (autorunTimer) {
+    clearTimeout(autorunTimer);
+  }
+  autorunTimer = setTimeout(async () => {
+    autorunTimer = null;
+    await executeOneStep();
+  }, AUTORUN_DEBOUNCE_MS);
+}
+
 function applyState(remote) {
   state.code = remote.code;
   state.pc_counter = remote.pc_counter;
@@ -620,6 +691,7 @@ function initEvents() {
     updateLineNumbers();
     updateAutocompleteFromEditor();
     scheduleLiveUpdate();
+    scheduleAdminAutorun();
     if (historyTimer) {
       clearTimeout(historyTimer);
     }
@@ -720,6 +792,18 @@ function initEvents() {
     editorHistory.idx += 1;
     applyEditorHistoryValue(editorHistory.stack[editorHistory.idx]);
   });
+
+  byId("btn-play-step").addEventListener("click", async () => {
+    await executeOneStep();
+  });
+
+  const autorunBtn = byId("btn-autorun-toggle");
+  if (autorunBtn) {
+    setAutorunEnabled(isAutorunEnabled());
+    autorunBtn.addEventListener("click", () => {
+      setAutorunEnabled(!isAutorunEnabled());
+    });
+  }
 
   byId("btn-copy-code").addEventListener("click", async () => {
     try {

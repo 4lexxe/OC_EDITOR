@@ -84,6 +84,9 @@
         word-break: break-word;
         color: #a5b4fc;
       }
+      .console-sm {
+        max-height: 220px;
+      }
       .warn-box {
         border: 1px solid #b45309;
         background: #1c1917;
@@ -133,6 +136,17 @@
           <button type="button" class="secondary" id="btn-clear-log-view">Limpiar vista</button>
         </div>
         <pre class="console" id="request-log-console">Cargando…</pre>
+      </section>
+
+      <section class="card">
+        <h2>Registro de ejecuciones por sesión</h2>
+        <p class="small">Solo administradores pueden ver este historial. Cada sesión de navegador se etiqueta como “Usuario N”.</p>
+        <div class="row">
+          <button type="button" class="secondary" id="btn-refresh-exec-log">Actualizar registros</button>
+          <button type="button" id="btn-export-exec-log">Exportar JSON</button>
+        </div>
+        <p class="status" id="exec-log-status"></p>
+        <pre class="console console-sm" id="execution-log-console">Cargando…</pre>
       </section>
 
       <section class="card">
@@ -301,6 +315,37 @@
         document.getElementById("request-log-console").textContent = "(vista limpiada; recarga para ver de nuevo)";
       });
       refreshRequestLog();
+
+      function setExecLogStatus(msg, isError) {
+        const el = document.getElementById("exec-log-status");
+        el.textContent = msg || "";
+        el.style.color = isError ? "#fca5a5" : "#cbd5e1";
+      }
+
+      async function refreshExecutionLog() {
+        const el = document.getElementById("execution-log-console");
+        const res = await fetch("/api/admin/execution-logs");
+        const data = await res.json();
+        if (!data.ok) {
+          el.textContent = data.error || "No se pudo cargar el registro.";
+          setExecLogStatus(el.textContent, true);
+          return;
+        }
+        const sessions = Object.values((data.data && data.data.sessions) || {});
+        sessions.sort((a, b) => String(b.last_execution_at || "").localeCompare(String(a.last_execution_at || "")));
+        const lines = sessions.map((s) => {
+          const count = Array.isArray(s.executions) ? s.executions.length : 0;
+          return `${s.label || "Usuario"} | ${s.user_email || "sin email"} | ejecuciones: ${count} | última: ${s.last_execution_at || "-"}`;
+        });
+        el.textContent = lines.length ? lines.join("\n") : "(sin ejecuciones aún)";
+        setExecLogStatus(`Sesiones: ${sessions.length}`, false);
+      }
+
+      document.getElementById("btn-refresh-exec-log").addEventListener("click", refreshExecutionLog);
+      document.getElementById("btn-export-exec-log").addEventListener("click", () => {
+        window.location.href = "/api/admin/execution-logs/export";
+      });
+      refreshExecutionLog();
 
       document.getElementById("users-body").addEventListener("click", async (event) => {
         const row = event.target.closest("tr[data-email]");
