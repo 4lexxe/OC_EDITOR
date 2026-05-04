@@ -111,10 +111,6 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             Código
           </button>
-          <button type="button" class="mobile-primary-tab" data-mtab="infer" aria-selected="false">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v2.5M12 18.5V21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M3 12h2.5M18.5 12H21M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/><circle cx="12" cy="12" r="3"/></svg>
-            Inferencia
-          </button>
           <button type="button" class="mobile-primary-tab" data-mtab="gen" aria-selected="false">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Generar
@@ -126,27 +122,29 @@
             <div class="panel editor-panel editor-box">
               <div class="panel-header">
                 <span class="panel-title">Editor de código</span>
-                <div class="panel-actions">
-                  <button type="button" class="action-btn" title="Deshacer" id="btn-undo-editor">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
-                  </button>
-                  <button type="button" class="action-btn" title="Rehacer" id="btn-redo-editor">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
-                  </button>
+                <div class="panel-actions editor-panel-actions">
                   <button type="button" class="action-btn" title="Ejecutar un paso (Play)" id="btn-play-step">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </button>
+                  <button type="button" class="action-btn" title="Copiar código" id="btn-copy-code">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
                   {% if is_admin %}
                   <button type="button" class="action-btn" title="Autorun desactivado" id="btn-autorun-toggle" aria-pressed="false">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18l7-5 7 5V3z"/></svg>
                   </button>
                   {% endif %}
-                  <button type="button" class="action-btn" title="Copiar código" id="btn-copy-code">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <button type="button" class="action-btn" title="Deshacer" id="btn-undo-editor">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
                   </button>
-                  <button type="button" class="action-btn" title="Pantalla completa" id="btn-fullscreen-editor">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                  <button type="button" class="action-btn" title="Rehacer" id="btn-redo-editor">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>
                   </button>
+                  <div class="editor-fullscreen-wrap" role="presentation">
+                    <button type="button" class="action-btn action-btn-fullscreen" title="Pantalla completa" id="btn-fullscreen-editor" aria-label="Pantalla completa">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="editor-body">
@@ -163,39 +161,39 @@
                 <div id="autocomplete-tip" class="autocomplete-tip"></div>
               </div>
             </div>
-          </section>
 
-          <div class="infer-dual-panel">
-            <div class="infer-dual-toolbar">
-              <span class="infer-dual-title">Inferencia</span>
-              <button type="button" class="help-btn" id="btn-infer-help" title="Ayuda">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
-              </button>
-            </div>
-            <div class="infer-dual-row">
-              <div class="infer-step-card">
-                <div class="infer-step-head">
-                  <span class="infer-step-icon infer-step-icon--instr" aria-hidden="true" title="Instrucción inferida">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                  </span>
-                  <span class="infer-step-label">Instrucción</span>
+            <div class="infer-dual-panel">
+              <div class="infer-dual-toolbar">
+                <span class="infer-dual-title">Inferencia</span>
+                <button type="button" class="help-btn" id="btn-infer-help" title="Ayuda">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                </button>
+              </div>
+              <div class="infer-dual-row">
+                <div class="infer-step-card">
+                  <div class="infer-step-head">
+                    <span class="infer-step-icon infer-step-icon--instr" aria-hidden="true" title="Instrucción inferida">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </span>
+                    <span class="infer-step-label">Instrucción</span>
+                  </div>
+                  <p id="infer-instruction" class="infer-step-value">—</p>
                 </div>
-                <p id="infer-instruction" class="infer-step-value">—</p>
-              </div>
-              <div class="infer-step-arrow" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-              </div>
-              <div class="infer-step-card">
-                <div class="infer-step-head">
-                  <span class="infer-step-icon infer-step-icon--mode" aria-hidden="true" title="Modo de direccionamiento">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-                  </span>
-                  <span class="infer-step-label">Modo</span>
+                <div class="infer-step-arrow" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
                 </div>
-                <p id="infer-mode" class="infer-step-value">—</p>
+                <div class="infer-step-card">
+                  <div class="infer-step-head">
+                    <span class="infer-step-icon infer-step-icon--mode" aria-hidden="true" title="Modo de direccionamiento">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                    </span>
+                    <span class="infer-step-label">Modo</span>
+                  </div>
+                  <p id="infer-mode" class="infer-step-value">—</p>
+                </div>
               </div>
             </div>
-          </div>
+          </section>
 
           <div class="panel generate-panel">
             <div class="panel-header">
@@ -343,7 +341,7 @@
 
         <button type="button" class="mobile-fab-execute" id="btn-play-fab-mobile" title="Ejecutar un paso">
           <span class="mobile-fab-execute-icon" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 8 19 19 12 8 5"/></svg>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 8 19 19 12 8 5"/></svg>
           </span>
           <span class="mobile-fab-execute-label">Ejecutar</span>
         </button>

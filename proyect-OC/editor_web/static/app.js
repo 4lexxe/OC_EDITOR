@@ -736,6 +736,14 @@ async function refreshInference() {
   }
 }
 
+/** Inferencia en vivo solo si es admin; usuarios normales solo al pulsar Ejecutar (Play). */
+async function refreshInferenceIfAdmin() {
+  if (!IS_ADMIN) {
+    return;
+  }
+  await refreshInference();
+}
+
 let suppressAutorun = false;
 let autorunTimer = null;
 const AUTORUN_DEBOUNCE_MS = 700;
@@ -822,7 +830,7 @@ async function loadInitialState() {
       applyState(sync.state);
     }
   }
-  await refreshInference();
+  await refreshInferenceIfAdmin();
   await refreshTrace();
 }
 
@@ -834,7 +842,7 @@ function scheduleLiveUpdate() {
   }
   updateTimer = setTimeout(async () => {
     updateTimer = null;
-    await refreshInference();
+    await refreshInferenceIfAdmin();
     await refreshTrace();
   }, 180);
 }
@@ -917,7 +925,7 @@ function initEvents() {
     if (data.ok) {
       applyState(data.state);
       flushSessionDraftNow();
-      await refreshInference();
+      await refreshInferenceIfAdmin();
       await refreshTrace();
     }
   });
@@ -937,7 +945,7 @@ function initEvents() {
     byId("gen-result").textContent = data.message;
     setStatus(data.message);
     schedulePersistSessionDraft();
-    await refreshInference();
+    await refreshInferenceIfAdmin();
     await refreshTrace();
   });
 
@@ -1098,8 +1106,8 @@ function initMobileShellUi() {
       btn.addEventListener("click", () => {
         const name = btn.dataset.mtab;
         setMobileEditorTab(name);
-        if (name === "infer") {
-          refreshInference();
+        if (name === "code") {
+          void refreshInferenceIfAdmin();
         }
         if (name === "gen") {
           byId("gen-expression")?.focus();
