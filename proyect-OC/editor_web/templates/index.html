@@ -21,7 +21,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Victor+Mono:ital,wght@0,400;1,500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/static/style.css" />
   </head>
-  <body data-mtab="code">
+  <body data-mtab="code" data-sidebar-view="editor">
     <header class="topbar">
       <div class="topbar-left">
         <div class="logo-box">
@@ -230,7 +230,9 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
             <span id="log-text">Listo.</span>
           </div>
+          </div>
 
+          <div class="right-col">
           <section id="sec-memory" class="panel memory-ram-panel hidden-panel">
             <div class="panel-header">
               <span class="panel-title">Registros y memoria RAM</span>
@@ -250,17 +252,26 @@
               </div>
             </div>
           </section>
-          </div>
 
-          <div class="right-col">
           <section id="sec-trace" class="panel trace-panel">
             <div class="panel-header">
               <span class="panel-title">Traza (tiempo real)</span>
-              <button type="button" class="action-btn" title="Actualizar traza" id="btn-refresh-trace">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>
-              </button>
+              <div class="panel-actions">
+                <button type="button" class="action-btn" title="Copiar tabla (TSV)" id="btn-copy-trace-table">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+                <button type="button" class="action-btn" title="Actualizar traza" id="btn-refresh-trace">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>
+                </button>
+              </div>
             </div>
             <div class="trace-body">
+              <p class="trace-hint">
+                En esta vista cargá <strong>PC, ACC, GPR, F, M</strong> y la <strong>RAM</strong> en el panel de arriba; la tabla muestra cada μop como en la hoja de examen.
+              </p>
+              <p class="trace-hint trace-hint-secondary">
+                Las líneas de microcódigo están en la vista <strong>Editor</strong> (icono de código en el menú izquierdo). Si la tabla solo muestra «Estado inicial», escribí ahí las μops y volvé a <strong>Traza</strong>.
+              </p>
               <div class="trace-view-row">
                 <label class="trace-view-label" for="trace-mode">Vista</label>
                 <div class="select-wrapper trace-select-grow">
@@ -278,9 +289,14 @@
                   MAR y PC en decimal
                 </label>
                 <label class="check-label">
-                  <input type="checkbox" id="trace-compact" checked />
+                  <input type="checkbox" id="trace-inicial" checked />
                   <span class="check-custom"></span>
-                  Solo valores que cambian
+                  Fila «Estado inicial» (ciclo 0)
+                </label>
+                <label class="check-label">
+                  <input type="checkbox" id="trace-compact" />
+                  <span class="check-custom"></span>
+                  Solo celdas que cambian (compacto)
                 </label>
               </div>
               <div class="trace-table-wrap">
@@ -384,7 +400,7 @@ PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
           </p>
           <h3>Traza y memoria</h3>
           <p>
-            El panel derecho muestra el historial de microoperaciones y podés cambiar la vista (fetch + editor, etc.). En <strong>Memoria</strong> del menú lateral podés editar registros y la RAM.
+            En el menú lateral, <strong>Traza</strong> abre la vista dedicada: arriba cargás registros y RAM, abajo la tabla de ciclos (estilo exámen). <strong>Memoria</strong> muestra el mismo panel de registros y convive con el editor. En <strong>Editor</strong> seguís viendo código e inferencia a la izquierda y la traza a la derecha.
           </p>
         </div>
         <div class="tutorial-footer">

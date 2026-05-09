@@ -7,8 +7,25 @@ async function postJson(url, payload) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload || {}),
+    credentials: "same-origin",
   });
-  return response.json();
+  const ct = (response.headers.get("content-type") || "").toLowerCase();
+  if (!ct.includes("application/json")) {
+    const text = await response.text();
+    const hint =
+      response.status === 401 || response.status === 403
+        ? "Requiere iniciar sesión."
+        : `Respuesta no JSON (HTTP ${response.status}).`;
+    return {
+      ok: false,
+      error: `${hint} ${text ? text.slice(0, 160) : ""}`.trim(),
+    };
+  }
+  try {
+    return await response.json();
+  } catch {
+    return { ok: false, error: "No se pudo leer la respuesta del servidor." };
+  }
 }
 
 const state = {
@@ -53,6 +70,9 @@ const BROWSER_SESSION_ID_KEY = "editor_web_browser_session_id";
 const ADMIN_AUTORUN_KEY = "editor_web_admin_autorun";
 const SESSION_CPU_DRAFT_PREFIX = "editor_web_session_cpu_draft_v2";
 const DRAFT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** Última traza renderizada (para copiar TSV). */
+let lastTraceRows = [];
 
 const editorFlags = window.__EDITOR_FLAGS__ || {};
 const IS_ADMIN = Boolean(editorFlags.is_admin);
@@ -291,11 +311,23 @@ function insertLineBelow(text) {
 }
 
 function registerPayload() {
+  const codeEl = byId("code");
+  const pc = byId("reg-PC-bin");
+  const mem0 = byId("mem-edit-0");
+  if (!pc || !mem0) {
+    return {
+      browser_session_id: getBrowserSessionId(),
+      code: codeEl ? codeEl.value : state.code,
+      registers: { ...state.registers },
+      memory: [...state.memory],
+      pc_counter: state.pc_counter,
+    };
+  }
   return {
     browser_session_id: getBrowserSessionId(),
-    code: byId("code").value,
+    code: codeEl ? codeEl.value : "",
     registers: {
-      PC: byId("reg-PC-bin").value,
+      PC: pc.value,
       ACC: byId("reg-ACC-bin").value,
       GPR: byId("reg-GPR-bin").value,
       F: byId("reg-F-bin").value,
@@ -468,6 +500,9 @@ function getBrowserSessionId() {
 
 function renderRegisters(registers, registersHex) {
   const container = byId("registers");
+  if (!container) {
+    return;
+  }
   if (!container.dataset.ready) {
     container.innerHTML = `
       <div></div><div class="head">Binario</div><div class="head">Hex</div>
@@ -483,6 +518,11 @@ function renderRegisters(registers, registersHex) {
         const bits = name === "F" ? 1 : 12;
         const clean = byId(`reg-${name}-bin`).value.replace(/[^01]/g, "");
         byId(`reg-${name}-bin`).value = clean.slice(-bits).padStart(bits, "0");
+        const v = byId(`reg-${name}-bin`).value;
+        const n = parseInt(v, 2);
+        byId(`reg-${name}-hex`).value = bits === 1 ? String(n & 1) : n.toString(16).toUpperCase().padStart(3, "0").slice(-3);
+        scheduleLiveUpdate();
+        schedulePersistSessionDraft();
       });
       byId(`reg-${name}-hex`).addEventListener("input", () => {
         const bits = name === "F" ? 1 : 12;
@@ -491,10 +531,14 @@ function renderRegisters(registers, registersHex) {
         byId(`reg-${name}-hex`).value = hex;
         if (!hex) {
           byId(`reg-${name}-bin`).value = bits === 1 ? "0" : "000000000000";
+          scheduleLiveUpdate();
+          schedulePersistSessionDraft();
           return;
         }
         const asBin = parseInt(hex, 16).toString(2).padStart(bits, "0").slice(-bits);
         byId(`reg-${name}-bin`).value = asBin;
+        scheduleLiveUpdate();
+        schedulePersistSessionDraft();
       });
     });
   }
@@ -506,6 +550,9 @@ function renderRegisters(registers, registersHex) {
 
 function renderMemory(memory, memoryHex, editableId, readonly = false) {
   const container = byId(editableId);
+  if (!container) {
+    return;
+  }
   if (!container.dataset.ready) {
     container.innerHTML = Array.from({ length: 256 }, (_, i) => `
       <div class="mem-row">
@@ -520,6 +567,11 @@ function renderMemory(memory, memoryHex, editableId, readonly = false) {
         byId(`mem-edit-${i}`).addEventListener("input", () => {
           const clean = byId(`mem-edit-${i}`).value.replace(/[^01]/g, "");
           byId(`mem-edit-${i}`).value = clean.slice(-12).padStart(12, "0");
+          const v = byId(`mem-edit-${i}`).value;
+          const n = parseInt(v, 2);
+          byId(`${editableId}-hex-${i}`).textContent = n.toString(16).toUpperCase().padStart(3, "0").slice(-3);
+          scheduleLiveUpdate();
+          schedulePersistSessionDraft();
         });
       });
     }
@@ -532,6 +584,27 @@ function renderMemory(memory, memoryHex, editableId, readonly = false) {
     }
     byId(`${editableId}-hex-${i}`).textContent = memoryHex[i];
   });
+}
+
+/** Construye inputs de registros y RAM antes del primer /api/state o refreshTrace (evita null.value). */
+function bootstrapCpuPanelsFromState() {
+  const regsContainer = byId("registers");
+  if (regsContainer && !regsContainer.dataset.ready) {
+    const registersHex = {
+      PC: binStringToUiHex(12, state.registers.PC),
+      ACC: binStringToUiHex(12, state.registers.ACC),
+      GPR: binStringToUiHex(12, state.registers.GPR),
+      F: binStringToUiHex(1, state.registers.F),
+      M: binStringToUiHex(12, state.registers.M),
+    };
+    renderRegisters({ ...state.registers }, registersHex);
+  }
+  const memEdit = byId("memory-edit");
+  if (memEdit && !memEdit.dataset.ready) {
+    const memoryHex = state.memory.map((cell) => binStringToUiHex(12, cell));
+    renderMemory(state.memory, memoryHex, "memory-edit", false);
+    renderMemory(state.memory, memoryHex, "memory-view", true);
+  }
 }
 
 function renderResults(registers) {
@@ -558,23 +631,58 @@ function renderTrace(rows) {
     return;
   }
   const list = rows || [];
+  lastTraceRows = list;
+  const esc = escapeHtml;
   tbody.innerHTML = list.map((r, i) => {
     const isLast = i === list.length - 1 && list.length > 0;
-    const trClass = isLast ? "row-highlight" : "";
+    const isInitial = Number(r.ciclo) === 0;
+    const trClass = [isLast ? "row-highlight" : "", isInitial ? "trace-row-initial" : ""].filter(Boolean).join(" ");
     return `<tr class="${trClass}">
-      <td>${r.ciclo || ""}</td>
-      <td>${r.micro || ""}</td>
-      <td>${r.PC || ""}</td>
-      <td>${r.MAR || ""}</td>
-      <td>${r.GPR || ""}</td>
-      <td>${r.GPR_OP || ""}</td>
-      <td>${r.GPR_AD || ""}</td>
-      <td>${r.OPR || ""}</td>
-      <td>${r.ACC || ""}</td>
-      <td>${r.F || ""}</td>
-      <td>${r.M || ""}</td>
+      <td>${esc(String(r.ciclo ?? ""))}</td>
+      <td>${esc(String(r.micro ?? ""))}</td>
+      <td>${esc(String(r.PC ?? ""))}</td>
+      <td>${esc(String(r.MAR ?? ""))}</td>
+      <td>${esc(String(r.GPR ?? ""))}</td>
+      <td>${esc(String(r.GPR_OP ?? ""))}</td>
+      <td>${esc(String(r.GPR_AD ?? ""))}</td>
+      <td>${esc(String(r.OPR ?? ""))}</td>
+      <td>${esc(String(r.ACC ?? ""))}</td>
+      <td>${esc(String(r.F ?? ""))}</td>
+      <td>${esc(String(r.M ?? ""))}</td>
     </tr>`;
   }).join("");
+}
+
+function copyTraceTableAsTsv() {
+  const headers = ["Ciclo", "Microoperación", "PC", "MAR", "GPR", "GPR(OP)", "GPR(AD)", "OPR", "ACC", "F", "M"];
+  const rows = lastTraceRows.length ? lastTraceRows : [];
+  if (!rows.length) {
+    setStatus("No hay filas en la traza para copiar.", true);
+    return;
+  }
+  const lines = [
+    headers.join("\t"),
+    ...rows.map((r) =>
+      [
+        r.ciclo ?? "",
+        r.micro ?? "",
+        r.PC ?? "",
+        r.MAR ?? "",
+        r.GPR ?? "",
+        r.GPR_OP ?? "",
+        r.GPR_AD ?? "",
+        r.OPR ?? "",
+        r.ACC ?? "",
+        r.F ?? "",
+        r.M ?? "",
+      ].join("\t"),
+    ),
+  ];
+  const text = lines.join("\n");
+  navigator.clipboard.writeText(text).then(
+    () => setStatus("Tabla de traza copiada (TSV)."),
+    () => setStatus("No se pudo copiar la traza.", true),
+  );
 }
 
 function updateLineNumbers() {
@@ -690,23 +798,46 @@ function updateAutocompleteFromEditor() {
 }
 
 async function refreshTrace() {
-  const payload = registerPayload();
-  const data = await postJson("/api/trace", {
-    code: payload.code,
-    registers: payload.registers,
-    memory: payload.memory,
-    trace_mode: byId("trace-mode").value,
-    mar_pc_decimal: byId("trace-decimal").checked,
-    compact: byId("trace-compact").checked,
-  });
-  if (!data.ok) {
-    byId("trace-status").textContent = "No se pudo actualizar la traza.";
-    return;
+  const st = byId("trace-status");
+  try {
+    const payload = registerPayload();
+    const data = await postJson("/api/trace", {
+      code: payload.code,
+      registers: payload.registers,
+      memory: payload.memory,
+      trace_mode: byId("trace-mode")?.value ?? "fetch",
+      mar_pc_decimal: Boolean(byId("trace-decimal")?.checked),
+      compact: Boolean(byId("trace-compact")?.checked),
+      include_initial_row: byId("trace-inicial") ? byId("trace-inicial").checked : true,
+    });
+    if (!data || data.ok === false) {
+      const msg = (data && data.error) || "No se pudo actualizar la traza.";
+      if (st) {
+        st.textContent = msg;
+        st.classList.add("trace-steps--error");
+      }
+      return;
+    }
+    renderTrace(data.rows || []);
+    if (st) {
+      st.classList.toggle("trace-steps--error", Boolean(data.error));
+      st.textContent = data.error || `${(data.rows || []).length} μops simuladas`;
+    }
+    const tm = byId("trace-memory");
+    if (tm) {
+      tm.textContent = data.memory_info || "";
+    }
+    const te = byId("trace-explanation");
+    if (te) {
+      te.textContent = data.explanation || "";
+    }
+  } catch (e) {
+    console.error(e);
+    if (st) {
+      st.textContent = `Error al simular la traza: ${e && e.message ? e.message : String(e)}`;
+      st.classList.add("trace-steps--error");
+    }
   }
-  renderTrace(data.rows || []);
-  byId("trace-status").textContent = data.error || `${(data.rows || []).length} μops simuladas`;
-  byId("trace-memory").textContent = data.memory_info || "";
-  byId("trace-explanation").textContent = data.explanation || "";
 }
 
 async function refreshInference() {
@@ -817,18 +948,23 @@ function applyState(remote) {
 }
 
 async function loadInitialState() {
-  const sid = encodeURIComponent(getBrowserSessionId());
-  const data = await fetch(`/api/state?browser_session_id=${sid}`).then((r) => r.json());
-  if (data.ok) {
-    applyState(data.state);
-  }
-  const fromDraft = readSessionCpuDraft();
-  if (fromDraft) {
-    applyState(fromDraft);
-    const sync = await postJson("/api/state", registerPayload());
-    if (sync.ok) {
-      applyState(sync.state);
+  try {
+    const sid = encodeURIComponent(getBrowserSessionId());
+    const res = await fetch(`/api/state?browser_session_id=${sid}`, { credentials: "same-origin" });
+    const data = await res.json();
+    if (data.ok) {
+      applyState(data.state);
     }
+    const fromDraft = readSessionCpuDraft();
+    if (fromDraft) {
+      applyState(fromDraft);
+      const sync = await postJson("/api/state", registerPayload());
+      if (sync.ok) {
+        applyState(sync.state);
+      }
+    }
+  } catch (e) {
+    console.error("loadInitialState", e);
   }
   await refreshInferenceIfAdmin();
   await refreshTrace();
@@ -878,6 +1014,7 @@ function initEvents() {
   byId("trace-mode").addEventListener("change", refreshTrace);
   byId("trace-decimal").addEventListener("change", refreshTrace);
   byId("trace-compact").addEventListener("change", refreshTrace);
+  byId("trace-inicial")?.addEventListener("change", refreshTrace);
 
   byId("code").addEventListener("keydown", (event) => {
     if (event.key === "Tab" && !byId("autocomplete-popup").classList.contains("hidden")) {
@@ -1011,6 +1148,10 @@ function initEvents() {
     refreshTrace();
   });
 
+  byId("btn-copy-trace-table").addEventListener("click", () => {
+    copyTraceTableAsTsv();
+  });
+
   byId("btn-copy-mem-trace").addEventListener("click", async () => {
     const t = byId("trace-memory").textContent.trim();
     if (!t) {
@@ -1030,15 +1171,25 @@ function initEvents() {
       document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       const view = btn.dataset.view;
+      document.body.dataset.sidebarView = view;
+
       const mem = byId("sec-memory");
+      const showRegsRam = view === "memory" || view === "trace";
       if (mem) {
-        mem.classList.toggle("hidden-panel", view !== "memory");
+        mem.classList.toggle("hidden-panel", !showRegsRam);
       }
+
+      const leftCol = document.querySelector(".editor-columns-wrap .left-col");
+      if (leftCol) {
+        leftCol.classList.toggle("hidden-panel", view === "trace");
+      }
+
       if (view === "editor") {
         setMobileEditorTab("code");
         byId("sec-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "trace") {
-        byId("sec-trace")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        void refreshTrace();
+        byId("sec-memory")?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "memory") {
         mem?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "arch") {
@@ -1152,6 +1303,8 @@ function initMobileShellUi() {
 }
 
 initEvents();
+bootstrapCpuPanelsFromState();
+wireDraftPersistenceOnce();
 loadInitialState().then(() => {
   if (!localStorage.getItem(TUTORIAL_SEEN_KEY)) {
     openTutorialModal();

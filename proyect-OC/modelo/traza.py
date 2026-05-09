@@ -54,12 +54,11 @@ def clonar_cpu(cpu: VonNeuman) -> VonNeuman:
     n.ACC = cpu.ACC.copy()
     n.F = cpu.F.copy()
     n.GPR = cpu.GPR.copy()
+    n._sync_ir_fields()
     n.M = cpu.M.copy()
     n.MAR = cpu.MAR.copy()
     n.PC = cpu.PC.copy()
     n.OPR = cpu.OPR.copy()
-    n.GPR_AD = cpu.GPR_AD.copy()
-    n.GPR_OP = cpu.GPR_OP.copy()
     for i in range(cpu.RAM.size):
         n.RAM.ram[i] = cpu.RAM.ram[i].copy()
     return n
@@ -159,7 +158,8 @@ def simular_traza(
     *,
     prefijo_fetch: bool = False,
     mar_pc_decimal: bool = False,
-    omitir_repetidos: bool = True,
+    omitir_repetidos: bool = False,
+    estado_inicial: bool = False,
 ) -> tuple[list[dict], str | None, str]:
     """
     Devuelve (filas, error, texto_memoria). Cada fila es el estado *después* de esa microoperación.
@@ -167,6 +167,7 @@ def simular_traza(
     prefijo_fetch: antepone el ciclo de captación (PC→MAR, M→GPR+PC, GPR(OP)→OPR).
     mar_pc_decimal: muestra PC y MAR en decimal 0…4095 (como «83» en algunas filminas).
     omitir_repetidos: celdas en blanco si el registro no cambió respecto al ciclo anterior.
+    estado_inicial: si True, primera fila ciclo 0 «Estado inicial» antes de cualquier μop (como en parciales).
     texto_memoria: resumen de lecturas RAM (PC→MAR, GPR(AD)→MAR) y valores finales en esas direcciones.
     """
     texto = codigo.replace("\r\n", "\n")
@@ -200,6 +201,9 @@ def simular_traza(
     filas: list[dict] = []
     mem_log: list[dict] = []
     ciclo = 0
+
+    if estado_inicial:
+        filas.append(_fila_estado(0, "Estado inicial", c, mar_pc_decimal=mar_pc_decimal))
 
     for num_linea, linea in enumerate(lineas, start=1):
         linea = preprocesar_linea_microop(linea)

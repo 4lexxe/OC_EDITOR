@@ -536,8 +536,8 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px;
-  gap: 8px;
+  padding: 14px 16px;
+  gap: 16px;
   border-right: 1px solid var(--border);
 }
 
@@ -547,8 +547,33 @@ button {
   width: 480px;
   min-width: 420px;
   overflow-y: auto;
-  padding: 12px;
-  gap: 8px;
+  overflow-x: hidden;
+  padding: 14px 16px;
+  gap: 16px;
+}
+
+/* Sidebar «Traza»: solo columna derecha a ancho útil; editor/inferencia ocultos */
+body[data-sidebar-view="trace"] .editor-columns-wrap .left-col {
+  display: none !important;
+}
+
+body[data-sidebar-view="trace"] .editor-columns-wrap .right-col {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  border-right: none;
+  gap: 20px;
+  padding: 18px 20px;
+}
+
+body[data-sidebar-view="trace"] .trace-table-wrap {
+  max-height: min(52vh, 560px);
+}
+
+/* Registros más compactos arriba de la traza para que no tape la tabla */
+body[data-sidebar-view="trace"] #sec-memory .memory-ram-body {
+  max-height: min(38vh, 380px);
 }
 
 /* Panel */
@@ -557,6 +582,10 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
 }
 
 .generate-panel,
@@ -868,6 +897,9 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
+  position: relative;
+  z-index: 0;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
 }
 
 .infer-dual-toolbar {
@@ -1105,6 +1137,9 @@ button {
   font-size: 12px;
   color: var(--accent-green-light);
   flex-shrink: 0;
+  position: relative;
+  z-index: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .log-bar.error {
@@ -1132,6 +1167,13 @@ button {
 
 .fill-mem .memory-table {
   max-height: 280px;
+}
+
+/* Separación explícita registros vs tabla RAM dentro del mismo panel */
+.memory-ram-block.fill-mem {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-light);
 }
 
 .register-grid {
@@ -1202,11 +1244,29 @@ button {
 }
 
 /* Trace */
+.trace-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.trace-hint strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.trace-hint-secondary {
+  opacity: 0.92;
+  padding-bottom: 2px;
+  border-bottom: 1px dashed var(--border-light);
+}
+
 .trace-body {
-  padding: 10px 12px;
+  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .trace-view-row {
@@ -1318,6 +1378,11 @@ button {
   background: var(--highlight-row) !important;
 }
 
+.trace-table tbody tr.trace-row-initial td {
+  background: rgba(56, 139, 253, 0.07);
+  color: var(--text-primary);
+}
+
 .cell-hl {
   color: var(--highlight-cell) !important;
   font-weight: 600;
@@ -1329,6 +1394,11 @@ button {
   text-align: right;
   min-height: 1.2em;
   white-space: pre-wrap;
+}
+
+.trace-steps.trace-steps--error {
+  color: var(--accent-red);
+  font-weight: 600;
 }
 
 .memory-trace-body {
@@ -1704,10 +1774,10 @@ button {
 
   .editor-columns-wrap .right-col {
     border-top: 1px solid var(--border);
-    margin-top: 4px;
-    padding-top: 16px;
-    padding-bottom: 8px;
-    gap: 16px;
+    margin-top: 8px;
+    padding-top: 18px;
+    padding-bottom: 12px;
+    gap: 18px;
   }
 
   .left-col > *,

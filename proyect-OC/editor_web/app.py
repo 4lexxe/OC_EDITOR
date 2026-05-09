@@ -379,6 +379,7 @@ class EditorWebState:
         self.cpu.PC = _to_bitarray(self.registers["PC"], 12)
         self.cpu.ACC = _to_bitarray(self.registers["ACC"], 12)
         self.cpu.GPR = _to_bitarray(self.registers["GPR"], 12)
+        self.cpu._sync_ir_fields()
         self.cpu.F = _to_bitarray(self.registers["F"], 1)
         self.cpu.M = _to_bitarray(self.registers["M"], 12)
         for i, cell in enumerate(self.mem_edit):
@@ -1023,13 +1024,15 @@ def api_trace():
     code = str(payload.get("code", editor_state.code))
     mode = str(payload.get("trace_mode", "fetch"))
     mar_pc_dec = bool(payload.get("mar_pc_decimal", False))
-    compact = bool(payload.get("compact", True))
+    compact = bool(payload.get("compact", False))
+    include_initial = bool(payload.get("include_initial_row", True))
     cpu = VonNeuman()
     regs = payload.get("registers", {})
     mem = payload.get("memory", [])
     cpu.PC = _to_bitarray(regs.get("PC", "0" * 12), 12)
     cpu.ACC = _to_bitarray(regs.get("ACC", "0" * 12), 12)
     cpu.GPR = _to_bitarray(regs.get("GPR", "0" * 12), 12)
+    cpu._sync_ir_fields()
     cpu.F = _to_bitarray(regs.get("F", "0"), 1)
     cpu.M = _to_bitarray(regs.get("M", "0" * 12), 12)
     if isinstance(mem, list):
@@ -1042,6 +1045,7 @@ def api_trace():
         prefijo_fetch=(mode == "fetch"),
         mar_pc_decimal=mar_pc_dec,
         omitir_repetidos=compact,
+        estado_inicial=include_initial,
     )
     return jsonify(
         {
