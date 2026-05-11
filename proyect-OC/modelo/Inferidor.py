@@ -133,13 +133,16 @@ def _infer_si_acc_half_pm_4f(ops: list) -> str | None:
     """
     ACC <- ⌊ACC/2⌋ ± 4·F_bit con F_bit ∈ {0,1} el registro F tras el ROR.
     Igual que div4: aceptamos sufijo si hay microops previas.
+    Tras el resultado, a veces se agrega «ACC -> GPR» solo para copiar el
+    resultado al GPR; no cambia el ACC ni la semántica de alto nivel.
     """
-    if len(ops) >= len(_ACC_HALF_MAS_4F) and tuple(
-        ops[-len(_ACC_HALF_MAS_4F) :]
-    ) == _ACC_HALF_MAS_4F:
+    o = list(ops)
+    while o and o[-1] == "ACC_TO_GPR":
+        o.pop()
+    if len(o) >= len(_ACC_HALF_MAS_4F) and tuple(o[-len(_ACC_HALF_MAS_4F) :]) == _ACC_HALF_MAS_4F:
         return "ACC <- ACC/2 + 4F"
-    if len(ops) >= len(_ACC_HALF_MENOS_4F) and tuple(
-        ops[-len(_ACC_HALF_MENOS_4F) :]
+    if len(o) >= len(_ACC_HALF_MENOS_4F) and tuple(
+        o[-len(_ACC_HALF_MENOS_4F) :]
     ) == _ACC_HALF_MENOS_4F:
         return "ACC <- ACC/2 - 4F"
     return None
