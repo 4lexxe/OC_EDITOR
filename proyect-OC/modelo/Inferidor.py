@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from sympy import symbols, simplify, factor, Not, Symbol, collect, expand, sympify
-from sympy import Rational, Integer
+from sympy import Rational, Integer, floor, Mod
 from sympy.printing import sstr
 
 
@@ -116,61 +116,21 @@ def _infer_si_div4_menos_f(ops: list) -> str | None:
 
 # Mitad en entero + corrección ±4·F_bit (F_bit = LSB del ACC tras ROR con F=0 antes).
 # La simulación simbólica colapsa ese término; se reconoce por patrón (implicado).
-_ACC_HALF_PM_4F_NUCLEO = (
-    "ZERO_F",
-    "ROR_F_ACC",
-    "ACC_TO_GPR",
-    "ZERO_ACC",
-    "ROL_F_ACC",
-    "ROL_F_ACC",
-    "ROL_F_ACC",
-)
-_ACC_HALF_MAS_4F = _ACC_HALF_PM_4F_NUCLEO + ("SUM_ACC_GPR",)
-_ACC_HALF_MENOS_4F = _ACC_HALF_PM_4F_NUCLEO + ("NOT_ACC", "INC_ACC", "SUM_ACC_GPR")
-
-# Tras «ACC/2 − 4F»: copia a GPR, arma −2 en Ca2 (0, +1, +1, !, +1) y suma.
-_ACC_HALF_MENOS_4F_MENOS_2 = _ACC_HALF_MENOS_4F + (
-    "ACC_TO_GPR",
-    "ZERO_ACC",
-    "INC_ACC",
-    "INC_ACC",
-    "NOT_ACC",
-    "INC_ACC",
-    "SUM_ACC_GPR",
-)
-
-
-def _infer_si_acc_half_menos_4f_menos_2(ops: list) -> str | None:
+def _normalizar_texto_expr_apuntes_para_sym(expr_txt: str) -> str:
     """
-    ACC <- ⌊ACC/2⌋ − 4F − 2 (F_bit tras el ROR inicial). La simulación pierde F
-    en la segunda fase; se reconoce por patrón.
+    En apuntes «ACC/2» es división entera; para SymPy usamos floor(ACC/2).
+    No toca «2*ACC/2» (coeficiente explícito), solo el término suelto ACC/2.
     """
-    o = list(ops)
-    while o and o[-1] == "ACC_TO_GPR":
-        o.pop()
-    n = len(_ACC_HALF_MENOS_4F_MENOS_2)
-    if len(o) >= n and tuple(o[-n:]) == _ACC_HALF_MENOS_4F_MENOS_2:
-        return "ACC <- ACC/2 - 4F - 2"
-    return None
+    t = expr_txt.strip()
+    return re.sub(
+        r"(?<![A-Za-z0-9_*])ACC\s*/\s*2(?![A-Za-z0-9_*])",
+        "(floor(ACC/2))",
+        t,
+        flags=re.IGNORECASE,
+    )
 
 
-def _infer_si_acc_half_pm_4f(ops: list) -> str | None:
-    """
-    ACC <- ⌊ACC/2⌋ ± 4·F_bit con F_bit ∈ {0,1} el registro F tras el ROR.
-    Igual que div4: aceptamos sufijo si hay microops previas.
-    Tras el resultado, a veces se agrega «ACC -> GPR» solo para copiar el
-    resultado al GPR; no cambia el ACC ni la semántica de alto nivel.
-    """
-    o = list(ops)
-    while o and o[-1] == "ACC_TO_GPR":
-        o.pop()
-    if len(o) >= len(_ACC_HALF_MAS_4F) and tuple(o[-len(_ACC_HALF_MAS_4F) :]) == _ACC_HALF_MAS_4F:
-        return "ACC <- ACC/2 + 4F"
-    if len(o) >= len(_ACC_HALF_MENOS_4F) and tuple(
-        o[-len(_ACC_HALF_MENOS_4F) :]
-    ) == _ACC_HALF_MENOS_4F:
-        return "ACC <- ACC/2 - 4F"
-    return None
+_SYMPY_LOCALS = {"ACC": ACC0, "GPR": GPR0, "M": M0, "F": F0, "floor": floor, "Mod": Mod}
 
 
 def _limpiar_formato_simbolico(s: str) -> str:
@@ -235,9 +195,20 @@ def _equivalente_reorden_apuntes(s: str) -> str:
     return s
 
 
+def _expr_string_apuntes_acc(expr) -> str:
+    """Texto tipo apuntes para resultado en ACC: Mod(ACC,2)→F; floor(ACC/2)→ACC/2 si no va 2*…"""
+    e = expand(simplify(expr.subs(Mod(ACC0, 2), F0)))
+    s = _expr_string_canonica(e)
+    s = re.sub(r"(?<!\*)floor\(ACC\s*/\s*2\)", "ACC/2", s, flags=re.IGNORECASE)
+    return _limpiar_formato_simbolico(s)
+
+
 def _fmt_instruccion(destino_arrow: str, expr) -> str:
     """Texto destino <- expr: canónica (SymPy) y equivalente tipo apuntes si difiere."""
-    can = _expr_string_canonica(expr)
+    if destino_arrow.strip().upper() == "ACC":
+        can = _expr_string_apuntes_acc(expr)
+    else:
+        can = _expr_string_canonica(expr)
     equiv = _equivalente_reorden_apuntes(can)
     if equiv == can:
         return f"{destino_arrow} <- {can}"
@@ -262,8 +233,9 @@ def _parsear_instruccion_objetivo(instruccion: str):
     expr_txt = expr_raw.strip()
     expr_txt = re.sub(r"\b(acc|gpr|m|f)\b", lambda m: m.group().upper(), expr_txt, flags=re.IGNORECASE)
     expr_txt = re.sub(r"(\d)(ACC|GPR|M\b|F\b)", r"\1*\2", expr_txt)
+    expr_txt = _normalizar_texto_expr_apuntes_para_sym(expr_txt)
     try:
-        expr = expand(sympify(expr_txt, locals={"ACC": ACC0, "GPR": GPR0, "M": M0, "F": F0}))
+        expr = expand(sympify(expr_txt, locals=_SYMPY_LOCALS))
     except Exception:
         return None, None
     return destino, expr
@@ -281,8 +253,9 @@ def _extraer_expr_inferida(resultado_inferido: str, destino: str):
             if "  equivalente:" in rhs:
                 rhs = rhs.split("  equivalente:", 1)[0].strip()
         rhs = re.sub(r"(\d)(ACC|GPR|M\b|F\b)", r"\1*\2", rhs)
+        rhs = _normalizar_texto_expr_apuntes_para_sym(rhs)
         try:
-            return expand(sympify(rhs, locals={"ACC": ACC0, "GPR": GPR0, "M": M0, "F": F0}))
+            return expand(sympify(rhs, locals=_SYMPY_LOCALS))
         except Exception:
             return None
     return None
@@ -345,14 +318,6 @@ def inferir(ops: list) -> str:
     if div4f:
         return div4f
 
-    half4f2 = _infer_si_acc_half_menos_4f_menos_2(ops)
-    if half4f2:
-        return half4f2
-
-    half4f = _infer_si_acc_half_pm_4f(ops)
-    if half4f:
-        return half4f
-
     # ── Detectar si F se usa sin haber sido inicializado en 0 ────────
     # Ignorar ops de setup (carga de memoria, fetch) al buscar el primer uso de F
     SETUP_OPS = {"PC_TO_MAR", "INC_PC", "INC_GPR", "GPR_OP_TO_OPR",
@@ -405,32 +370,30 @@ def inferir(ops: list) -> str:
 
         elif op == "ROL_F_ACC":
             # ROL: ACC*2 + F (12 bits en hardware). Si ACC==0, inyecta F en el LSB
-            # (bloques “±F” del apunte). Dejar F=0 siempre hace que repeticiones
-            # colapsen (-3M-2F → -3M-F). Tras inyectar, el bit F de estado se
+            # (bloques “±F” del apunte). Tras inyectar, el bit F de estado se
             # relee igual en cada micropaso → restauramos F0 cuando el siguiente
-            # paso es NOT (resta F) o SUM (suma con GPR / cierre de +F).
-            # Cadenas ROL,ROL,… (p. ej. varios ROL seguidos) no cumplen acc==0 en
-            # el 2.º ROL o el next no es NOT/SUM → F queda 0 (carry encadenado).
+            # paso es NOT/SUM **y** F ya era 0 (no pisar Mod(ACC,2) del ROR previo).
             new_acc = simplify(acc * 2 + f)
             state["ACC"] = new_acc
             nxt = ops[i + 1] if i + 1 < len(ops) else None
             if simplify(acc) == 0 and nxt in ("NOT_ACC", "SUM_ACC_GPR"):
-                state["F"] = F0
+                if f == Integer(0):
+                    state["F"] = F0
+                else:
+                    state["F"] = Integer(0)
             else:
                 state["F"] = Integer(0)
 
         elif op == "ROR_F_ACC":
-            # ROR: desplaza derecha 1 bit, F entra como bit más significativo
-            # Resultado: (ACC + F*4096) / 2  pero expresado como entero
-            # Cuando F=0: ACC >> 1 = ACC/2
-            # Usamos división entera simbólica: floor(ACC/2) + F*2048
-            from sympy import floor as sym_floor
+            # ROR con F_old=0: ACC ← ⌊ACC/2⌋ (12 bits), F ← LSB(ACC) (bit que sale).
+            # Antes se ponía F=0 siempre y se perdía el término ±4F en cadenas ROL.
             if f == Integer(0):
-                new_acc = simplify(acc / 2)
+                state["ACC"] = simplify(floor(acc / 2))
+                state["F"] = simplify(Mod(acc, 2))
             else:
-                new_acc = simplify(acc / 2 + f * 2048)
-            state["ACC"] = new_acc
-            state["F"]   = Integer(0)
+                # F=1 (MSB del “13.º bit”): mismo criterio que antes en el modelo.
+                state["ACC"] = simplify(floor((acc + Integer(4096)) / 2))
+                state["F"] = simplify(Mod(acc, 2))
 
         elif op == "SUM_ACC_GPR":
             state["ACC"] = simplify(acc + gpr)
