@@ -128,6 +128,31 @@ _ACC_HALF_PM_4F_NUCLEO = (
 _ACC_HALF_MAS_4F = _ACC_HALF_PM_4F_NUCLEO + ("SUM_ACC_GPR",)
 _ACC_HALF_MENOS_4F = _ACC_HALF_PM_4F_NUCLEO + ("NOT_ACC", "INC_ACC", "SUM_ACC_GPR")
 
+# Tras «ACC/2 − 4F»: copia a GPR, arma −2 en Ca2 (0, +1, +1, !, +1) y suma.
+_ACC_HALF_MENOS_4F_MENOS_2 = _ACC_HALF_MENOS_4F + (
+    "ACC_TO_GPR",
+    "ZERO_ACC",
+    "INC_ACC",
+    "INC_ACC",
+    "NOT_ACC",
+    "INC_ACC",
+    "SUM_ACC_GPR",
+)
+
+
+def _infer_si_acc_half_menos_4f_menos_2(ops: list) -> str | None:
+    """
+    ACC <- ⌊ACC/2⌋ − 4F − 2 (F_bit tras el ROR inicial). La simulación pierde F
+    en la segunda fase; se reconoce por patrón.
+    """
+    o = list(ops)
+    while o and o[-1] == "ACC_TO_GPR":
+        o.pop()
+    n = len(_ACC_HALF_MENOS_4F_MENOS_2)
+    if len(o) >= n and tuple(o[-n:]) == _ACC_HALF_MENOS_4F_MENOS_2:
+        return "ACC <- ACC/2 - 4F - 2"
+    return None
+
 
 def _infer_si_acc_half_pm_4f(ops: list) -> str | None:
     """
@@ -319,6 +344,10 @@ def inferir(ops: list) -> str:
     div4f = _infer_si_div4_menos_f(ops)
     if div4f:
         return div4f
+
+    half4f2 = _infer_si_acc_half_menos_4f_menos_2(ops)
+    if half4f2:
+        return half4f2
 
     half4f = _infer_si_acc_half_pm_4f(ops)
     if half4f:
