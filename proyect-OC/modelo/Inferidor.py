@@ -114,6 +114,37 @@ def _infer_si_div4_menos_f(ops: list) -> str | None:
     return None
 
 
+# Mitad en entero + corrección ±4·F_bit (F_bit = LSB del ACC tras ROR con F=0 antes).
+# La simulación simbólica colapsa ese término; se reconoce por patrón (implicado).
+_ACC_HALF_PM_4F_NUCLEO = (
+    "ZERO_F",
+    "ROR_F_ACC",
+    "ACC_TO_GPR",
+    "ZERO_ACC",
+    "ROL_F_ACC",
+    "ROL_F_ACC",
+    "ROL_F_ACC",
+)
+_ACC_HALF_MAS_4F = _ACC_HALF_PM_4F_NUCLEO + ("SUM_ACC_GPR",)
+_ACC_HALF_MENOS_4F = _ACC_HALF_PM_4F_NUCLEO + ("NOT_ACC", "INC_ACC", "SUM_ACC_GPR")
+
+
+def _infer_si_acc_half_pm_4f(ops: list) -> str | None:
+    """
+    ACC <- ⌊ACC/2⌋ ± 4·F_bit con F_bit ∈ {0,1} el registro F tras el ROR.
+    Igual que div4: aceptamos sufijo si hay microops previas.
+    """
+    if len(ops) >= len(_ACC_HALF_MAS_4F) and tuple(
+        ops[-len(_ACC_HALF_MAS_4F) :]
+    ) == _ACC_HALF_MAS_4F:
+        return "ACC <- ACC/2 + 4F"
+    if len(ops) >= len(_ACC_HALF_MENOS_4F) and tuple(
+        ops[-len(_ACC_HALF_MENOS_4F) :]
+    ) == _ACC_HALF_MENOS_4F:
+        return "ACC <- ACC/2 - 4F"
+    return None
+
+
 def _limpiar_formato_simbolico(s: str) -> str:
     import re
 
@@ -285,6 +316,10 @@ def inferir(ops: list) -> str:
     div4f = _infer_si_div4_menos_f(ops)
     if div4f:
         return div4f
+
+    half4f = _infer_si_acc_half_pm_4f(ops)
+    if half4f:
+        return half4f
 
     # ── Detectar si F se usa sin haber sido inicializado en 0 ────────
     # Ignorar ops de setup (carga de memoria, fetch) al buscar el primer uso de F
