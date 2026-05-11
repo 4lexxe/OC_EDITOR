@@ -1,0 +1,47 @@
+; M <- 2*M - 5*F - 1 | ciclo completo - directo (fetch + direccionamiento directo)
+
+PC -> MAR
+M -> GPR, PC+1->PC
+GPR(OP) -> OPR
+0 -> ACC
+GPR(AD) -> MAR
+M -> GPR
+GPR+ACC -> ACC
+GPR+ACC -> ACC
+ACC -> GPR
+0 -> ACC
+ROL F, ACC
+ACC! -> ACC
+ACC+1 -> ACC
+GPR+ACC -> ACC
+ACC -> GPR
+0 -> ACC
+ROL F, ACC
+ACC! -> ACC
+ACC+1 -> ACC
+GPR+ACC -> ACC
+ACC -> GPR
+0 -> ACC
+ROL F, ACC
+ACC! -> ACC
+ACC+1 -> ACC
+GPR+ACC -> ACC
+ACC -> GPR
+0 -> ACC
+ROL F, ACC
+ACC! -> ACC
+ACC+1 -> ACC
+GPR+ACC -> ACC
+ACC -> GPR
+0 -> ACC
+ROL F, ACC
+ACC! -> ACC
+ACC+1 -> ACC
+GPR+ACC -> ACC
+ACC! -> ACC
+ACC+1 -> ACC
+ACC+1 -> ACC
+ACC! -> ACC
+ACC+1 -> ACC
+ACC -> GPR
+GPR -> M

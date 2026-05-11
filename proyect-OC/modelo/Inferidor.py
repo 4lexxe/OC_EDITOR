@@ -36,6 +36,26 @@ _PLANTILLA_DIV4_MENOS_F_M = _PLANTILLA_DIV4_MENOS_F_NUCLEO + ("ACC_TO_GPR", "GPR
 # Prefijo fetch atómico (misma convención que Generador.FETCH_CICLO_INSTRUCCION).
 _FETCH_ATOMICA = ("PC_TO_MAR", "M_TO_GPR", "INC_PC", "GPR_OP_TO_OPR")
 
+
+def _remover_todos_ciclos_fetch(ops: list) -> list:
+    """
+    Quita cada aparición consecutiva del fetch estándar de 4 microops.
+    Si en el editor se pegan dos programas (fetch + cuerpo + fetch + cuerpo),
+    sin esto el segundo fetch queda en medio y corrompe la simulación simbólica.
+    """
+    ops = [o for o in ops if o]
+    out: list = []
+    i = 0
+    n = len(ops)
+    while i < n:
+        if i + 4 <= n and tuple(ops[i : i + 4]) == _FETCH_ATOMICA:
+            i += 4
+            continue
+        out.append(ops[i])
+        i += 1
+    return out
+
+
 _MAPA_TEXTO_A_INTERNO = {
     "PC -> MAR": "PC_TO_MAR",
     "M -> GPR, PC+1->PC": "M_TO_GPR_INC_PC",
@@ -60,10 +80,8 @@ _MAPA_TEXTO_A_INTERNO = {
 
 
 def _ops_tras_fetch_si_hay(ops: list) -> list:
-    ops = [o for o in ops if o]
-    if len(ops) >= 4 and tuple(ops[:4]) == _FETCH_ATOMICA:
-        return ops[4:]
-    return ops
+    """Ops de ejecución: sin ningún ciclo fetch estándar de 4 microops."""
+    return _remover_todos_ciclos_fetch([o for o in ops if o])
 
 
 # Ejecución de la filmina "M <- Acc + M + 2 (directo)" sin la línea roja GPR(AD)->MAR.
@@ -302,14 +320,11 @@ def inferir(ops: list) -> str:
         return "Sin instrucciones"
 
     ops = [op for op in ops if op]
-
-    # ── Descartar fase fetch/decodificación (mismo prefijo que clasificar_modo) ──
-    if len(ops) >= 4 and tuple(ops[:4]) == _FETCH_ATOMICA:
-        ops = ops[4:]
-    else:
-        FETCH_OPS = {"PC_TO_MAR", "INC_PC", "INC_GPR", "GPR_OP_TO_OPR"}
-        while ops and ops[0] in FETCH_OPS:
-            ops = ops[1:]
+    ops = _remover_todos_ciclos_fetch(ops)
+    # Fetch incompleto al inicio (p. ej. solo PC->MAR pegado suelto)
+    FETCH_OPS = {"PC_TO_MAR", "INC_PC", "INC_GPR", "GPR_OP_TO_OPR"}
+    while ops and ops[0] in FETCH_OPS:
+        ops = ops[1:]
 
     if not ops:
         return "Ciclo fetch / decodificación"
@@ -397,6 +412,16 @@ def inferir(ops: list) -> str:
 
         elif op == "SUM_ACC_GPR":
             state["ACC"] = simplify(acc + gpr)
+            # Tras el bloque apunte «0; ROL F,ACC; NOT; INC; GPR+ACC» (efecto ACC ← ACC − F),
+            # el modelo ponía F en 0 tras el ROL y al encadenar k bloques solo contaba ~ceil(k/2) veces F0.
+            # En alto nivel cada «−F» resta el mismo bit de estado F0; lo restablecemos aquí.
+            if (
+                i >= 3
+                and ops[i - 3] == "ROL_F_ACC"
+                and ops[i - 2] == "NOT_ACC"
+                and ops[i - 1] == "INC_ACC"
+            ):
+                state["F"] = F0
 
         elif op == "ACC_TO_GPR":
             state["GPR"] = state["ACC"]
