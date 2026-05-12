@@ -136,19 +136,36 @@ def _infer_si_div4_menos_f(ops: list) -> str | None:
 # La simulación simbólica colapsa ese término; se reconoce por patrón (implicado).
 def _normalizar_texto_expr_apuntes_para_sym(expr_txt: str) -> str:
     """
-    En apuntes «ACC/2» es división entera; para SymPy usamos floor(ACC/2).
-    No toca «2*ACC/2» (coeficiente explícito), solo el término suelto ACC/2.
+    En apuntes «ACC/n» (n potencia de 2) es división entera; para SymPy usamos floor(ACC/n).
+    Se reemplaza de mayor a menor n para no confundir «ACC/22» con «ACC/2».
     """
     t = expr_txt.strip()
-    return re.sub(
-        r"(?<![A-Za-z0-9_*])ACC\s*/\s*2(?![A-Za-z0-9_*])",
-        "(floor(ACC/2))",
-        t,
-        flags=re.IGNORECASE,
-    )
+    for n in (4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2):
+        t = re.sub(
+            rf"(?<![A-Za-z0-9_*])ACC\s*/\s*{n}(?![A-Za-z0-9_*])",
+            rf"(floor(ACC/{n}))",
+            t,
+            flags=re.IGNORECASE,
+        )
+    return t
 
 
 _SYMPY_LOCALS = {"ACC": ACC0, "GPR": GPR0, "M": M0, "F": F0, "floor": floor, "Mod": Mod}
+
+
+def _equiv_en_dominio_acc_12_bits(expr_obj, expr_inf) -> bool:
+    """
+    Si solo aparece ACC0 (palabra de 12 bits), comprobar igualdad en 0..4095.
+    Cubre casos donde expand() no prueba floor(ACC/4) == floor(floor(ACC/2)/2).
+    """
+    syms = expr_obj.free_symbols | expr_inf.free_symbols
+    if syms - {ACC0}:
+        return False
+    diff = expr_obj - expr_inf
+    for v in range(4096):
+        if diff.subs(ACC0, Integer(v)) != 0:
+            return False
+    return True
 
 
 def _limpiar_formato_simbolico(s: str) -> str:
@@ -197,6 +214,10 @@ def _str_suma_orden_apuntes(expr) -> str:
 
 def _expr_string_canonica(expr) -> str:
     """String legible tipo apuntes."""
+    for sym, label in ((M0, "M"), (GPR0, "GPR")):
+        t = _texto_apuntes_div_entera_pot2_y_const(expr, sym, label)
+        if t is not None:
+            return _limpiar_formato_simbolico(t)
     e = expand(simplify(expr))
     if e.is_Add:
         return _str_suma_orden_apuntes(e)
@@ -213,24 +234,61 @@ def _equivalente_reorden_apuntes(s: str) -> str:
     return s
 
 
+def _denominador_pot2_si_expr_es_floor_div_en_12bits(expr, sym) -> int | None:
+    """
+    Devuelve n (potencia de 2) si expr coincide con floor(sym/n) para ACC/M/GPR en 0..4095.
+    """
+    if expr.free_symbols != {sym}:
+        return None
+    for k in range(1, 13):
+        n = 2**k
+        templ = floor(sym / Integer(n))
+        for v in range(4096):
+            if (expr - templ).subs(sym, Integer(v)) != 0:
+                break
+        else:
+            return n
+    return None
+
+
+def _texto_apuntes_div_entera_pot2_y_const(expr, sym, etiqueta: str) -> str | None:
+    """
+    Formato apuntes: «ACC/n», «M/n», o «m*(ACC/n)» si expr es m*floor(sym/n) con m entero > 0
+    y n potencia de 2 (p. ej. 2*floor(floor(ACC/4)/2) → 2*(ACC/8)).
+    """
+    if expr.free_symbols != {sym}:
+        return None
+    c, body = expr.as_coeff_Mul()
+    if getattr(c, "is_Integer", False) and c > 0:
+        n = _denominador_pot2_si_expr_es_floor_div_en_12bits(body, sym)
+        if n is not None:
+            m = int(c)
+            if m == 1:
+                return f"{etiqueta}/{n}"
+            return f"{m}*({etiqueta}/{n})"
+    return None
+
+
 def _expr_string_apuntes_acc(expr) -> str:
-    """Texto tipo apuntes para resultado en ACC: Mod(ACC,2)→F; floor(ACC/2)→ACC/2 si no va 2*…"""
+    """Texto tipo apuntes para resultado en ACC: Mod(ACC,2)→F; divisiones /2^k como ACC/2^k."""
     e = expand(simplify(expr.subs(Mod(ACC0, 2), F0)))
+    solo = _texto_apuntes_div_entera_pot2_y_const(e, ACC0, "ACC")
+    if solo is not None:
+        return _limpiar_formato_simbolico(solo)
     s = _expr_string_canonica(e)
     s = re.sub(r"(?<!\*)floor\(ACC\s*/\s*2\)", "ACC/2", s, flags=re.IGNORECASE)
     return _limpiar_formato_simbolico(s)
 
 
 def _fmt_instruccion(destino_arrow: str, expr) -> str:
-    """Texto destino <- expr: canónica (SymPy) y equivalente tipo apuntes si difiere."""
+    """Una sola línea legible: prioriza el reorden tipo apuntes si mejora la lectura."""
     if destino_arrow.strip().upper() == "ACC":
         can = _expr_string_apuntes_acc(expr)
     else:
         can = _expr_string_canonica(expr)
     equiv = _equivalente_reorden_apuntes(can)
-    if equiv == can:
-        return f"{destino_arrow} <- {can}"
-    return f"{destino_arrow} <- canónica: {can}  |  equivalente: {equiv}"
+    texto = equiv if equiv != can else can
+    return f"{destino_arrow} <- {texto}"
 
 
 def _not12(expr):
@@ -307,6 +365,8 @@ def verificar_equivalencia(instruccion: str, microops_texto: list[str]) -> tuple
         return False, f"No se pudo inferir expresión para {destino}. Inferido: {resultado}"
 
     if expand(expr_obj - expr_inf) == 0:
+        return True, resultado
+    if _equiv_en_dominio_acc_12_bits(expr_obj, expr_inf):
         return True, resultado
     return False, f"Objetivo: {destino} <- {_expr_string_canonica(expr_obj)} | Inferido: {resultado}"
 
