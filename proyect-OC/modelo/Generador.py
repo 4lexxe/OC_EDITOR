@@ -13,6 +13,7 @@ Soporta expresiones del tipo:
     M   <- N*M - K*F   (K>0: resta K veces F; vía patrón ACC <- ACC - F)
     M   <- N*M + K*F   (K>0: suma K veces F; vía 0/ROL F/GPR+ACC)
     ACC/M <- ACC/2 (+ F vía ROR), ACC/M <- ACC/4 - F, etc.
+    ACC <- ACC/n, M <- ACC/n  (n = 2, 4, 8, … potencias de 2; varios ROR con F=0)
     ACC <- ACC - F, M <- M + ACC + K (directo/indirecto en apuntes).
     M   <- ca*ACC + cm*M + K  (ca, cm enteros distintos de cero, sin F en la expresión).
     M   <- ca*ACC + K  (sin término M; escribe ACC escalado + constante en memoria)
@@ -24,7 +25,7 @@ Soporta expresiones del tipo:
 
 Usa sympy para parsear la expresión y luego genera la secuencia óptima.
 """
-from sympy import symbols, sympify, expand, Rational, Integer, factor
+from sympy import symbols, sympify, expand, Rational, Integer, factor, simplify
 from sympy import Mul, Add, Pow, Number
 
 
@@ -51,6 +52,38 @@ FETCH_CICLO_INSTRUCCION = [
 ]
 
 _PAR_MEM_DIRECTO = ["GPR(AD) -> MAR", "M -> GPR"]
+
+
+def _cuerpo_div_acc_potencia_de_2(expr, destino: str) -> list | None:
+    """
+    ACC <- ACC/n o M <- ACC/n cuando la expresión es exactamente ACC/n (sin F ni otros símbolos)
+    y n es 2, 4, 8, …: repetir (0->F, ROR) log2(n) veces.
+    ACC/3, ACC/5, etc.: no se puede con solo esta plantilla → ErrorGeneracion.
+    """
+    if F in expr.free_symbols:
+        return None
+    if expr.free_symbols != {ACC}:
+        return None
+    quo = simplify(expr / ACC)
+    if not quo.is_Rational or quo.p != 1:
+        return None
+    n = int(quo.q)
+    if n < 2:
+        return None
+    if expand(expr - ACC / Integer(n)) != 0:
+        return None
+    if not _es_potencia_de_2(n):
+        raise ErrorGeneracion(
+            f"ACC/{n}: el generador solo arma división por 2, 4, 8, 16, … "
+            f"(potencias de 2). ACC/3, ACC/5, ACC/6, etc. no van con ROR solos."
+        )
+    k = n.bit_length() - 1
+    ops: list[str] = []
+    for _ in range(k):
+        ops += ["0 -> F", "ROR F, ACC"]
+    if destino == "M":
+        ops += ["ACC -> GPR", "GPR -> M"]
+    return ops
 
 
 def _normalizar_modo(modo: str | None) -> str | None:
@@ -172,10 +205,15 @@ def generar(expresion: str, modo: str | None = None) -> list:
         ops += ["ACC -> GPR", "GPR -> M"]
         return _finalizar(ops, modo_n)
 
-    # M <- ACC/2  →  0 -> F, ROR F, ACC + guardar en M
-    if destino_str == "M" and coef_f_expr == 0 and expr.coeff(ACC) == Rational(1, 2):
-        ops += ["0 -> F", "ROR F, ACC", "ACC -> GPR", "GPR -> M"]
-        return _finalizar(ops, modo_n)
+    # ACC <- ACC/n, M <- ACC/n  (n = 2^k; sin F en la expresión)
+    if destino_str == "ACC" and coef_f_expr == 0:
+        cdiv = _cuerpo_div_acc_potencia_de_2(expr, "ACC")
+        if cdiv is not None:
+            return _finalizar(cdiv, modo_n)
+    if destino_str == "M" and coef_f_expr == 0:
+        cdiv = _cuerpo_div_acc_potencia_de_2(expr, "M")
+        if cdiv is not None:
+            return _finalizar(cdiv, modo_n)
 
     # ACC/4 - F  →  dos ROR con F=0, luego ROL para copiar F al ACC y restar (GPR+ACC)
     # Usar la misma instancia F que en sympify (línea anterior).
@@ -203,11 +241,6 @@ def generar(expresion: str, modo: str | None = None) -> list:
         if modo_n in ("directo", "indirecto"):
             return FETCH_CICLO_INSTRUCCION + cuerpo
         return cuerpo
-
-    # ACC <- ACC/2  →  0 -> F, ROR F, ACC
-    if destino_str == "ACC" and coef_f_expr == 0 and expr.coeff(ACC) == Rational(1, 2):
-        ops += ["0 -> F", "ROR F, ACC"]
-        return _finalizar(ops, modo_n)
 
     # ACC <- ACC/2 + cf*F + K (interpretación cátedra): F es {0,1} estable y cf*F es aritmético.
     # Estrategia: guardar ACC en M, capturar F en ACC (0; ROL), escalar por cf,
@@ -576,6 +609,7 @@ def generar(expresion: str, modo: str | None = None) -> list:
         f"  M   <- N*M + K\n"
         f"  M   <- N*M ± K*F  |  M <- 6*M - 3*F  |  M <- 4*M + 2*F  (F registro de estado)\n"
         f"  M   <- ACC/4 - F  |  ACC <- ACC/4 - F\n"
+        f"  ACC <- ACC/n, M <- ACC/n  (n = 2, 4, 8, …; no ACC/3 ni ACC/5 automático)\n"
         f"  ACC <- ACC - F  |  M <- M + ACC + K\n"
         f"  M   <- ca*ACC + K  |  M <- ACC + 1  (sin término M; ca entero ≠ 0)\n"
         f"  M   <- ca*ACC + cm*M + K  |  M <- ca*ACC + cm*M + cf*F + K  (polinomio lineal con F)\n"
