@@ -37,7 +37,7 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </summary>
           <div class="mobile-topbar-more-panel">
-            {% if user_email %}<p class="mobile-more-email">{{ user_email }}</p>{% endif %}
+            {% if user_email %}<p class="mobile-more-email">{{ user_display or user_email }}<span class="mobile-more-email-sub">{{ user_email }}</span></p>{% endif %}
             <button type="button" class="mobile-more-link" id="btn-help-top-more">Ayuda</button>
             <button type="button" class="mobile-more-link" id="btn-tutorial-more">Modo tutorial</button>
             <button type="button" class="mobile-more-link" id="btn-config-more">Configuración</button>
@@ -45,7 +45,7 @@
             <a class="mobile-more-link mobile-more-link--danger" href="/logout">Cerrar sesión</a>
           </div>
         </details>
-        <span class="user-chip-top">{{ user_email }}</span>
+        <span class="user-chip-top" title="{{ user_email }}">{% if user_display %}{{ user_display }}{% else %}{{ user_email }}{% endif %}</span>
         <button type="button" class="btn-icon" id="btn-help-top" title="Ayuda">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
         </button>
@@ -412,6 +412,17 @@ PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
     <dialog id="config-modal" class="config-modal">
       <div class="config-card">
         <h2>Configuración</h2>
+        {% if user_email %}
+        <div class="config-profile-block">
+          <label for="profile-display-name">Nombre que verás vos y los admins (opcional, máx. 80)</label>
+          <div class="config-profile-row">
+            <input type="text" id="profile-display-name" maxlength="80" placeholder="Ej.: Alex — curso 2026" autocomplete="nickname" />
+            <button type="button" id="btn-save-display-name" class="config-save-name-btn">Guardar</button>
+          </div>
+          <p class="config-profile-hint" id="profile-email-hint"></p>
+          <p class="config-profile-status" id="profile-save-status" aria-live="polite"></p>
+        </div>
+        {% endif %}
         <label>Tamaño de texto del editor
           <input id="font-size-range" type="range" min="12" max="26" step="1" value="16" />
         </label>
@@ -421,7 +432,7 @@ PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
     </dialog>
 
     <script>
-      window.__EDITOR_FLAGS__ = {{ {"is_admin": is_admin}|tojson }};
+      window.__EDITOR_FLAGS__ = {{ {"is_admin": is_admin, "user_email": user_email or ""}|tojson }};
     </script>
     <script src="/static/app.js"></script>
   </body>

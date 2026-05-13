@@ -22,7 +22,7 @@ Luego abrir:
 
 ## Acceso con Google y control de usuarios
 
-La web del editor ahora requiere login con Google y solo acepta cuentas `@fi.unju.edu.ar`.
+Login con **Google** (correo verificado). Por defecto se acepta **cualquier dominio** salvo que definas `ALLOWED_DOMAIN` en el entorno.
 
 Variables de entorno obligatorias:
 
@@ -32,30 +32,38 @@ Variables de entorno obligatorias:
 
 Variables opcionales:
 
-- `ALLOWED_DOMAIN` (por defecto `fi.unju.edu.ar`)
+- `ALLOWED_DOMAIN` — vacío, `*` o `ALLOW_ALL_EMAIL_DOMAINS=1` → cualquier dominio.
+- `ALLOW_ALL_EMAIL_DOMAINS=1` — fuerza aceptar cualquier host de correo (útil si `ALLOWED_DOMAIN` quedó fija en un PaaS).
 - `EDITOR_WEB_ADMIN_PATH` (por defecto `/_internal/access-control`)
 - `EDITOR_WEB_DEFAULT_ADMINS` (lista separada por comas de correos admin iniciales)
-- `GOOGLE_REDIRECT_URI` (si quieres fijar explícitamente el callback OAuth)
+- `GOOGLE_REDIRECT_URI` (callback OAuth explícito)
+- `EDITOR_WEB_ACTIVITY_LOG_MAX` — tope de entradas en `activity_logs.json` (por defecto 4000).
 
-Ejemplo rápido en PowerShell:
+`security_settings.json`:
+
+- `login_required` — si el editor exige sesión.
+- `open_google_registration` — si **true**, la primera vez que entra un Google válido se **crea solo** en `allowed_users.json` (sin admin). Si **false**, hace falta dar de alta el correo a mano en el panel admin.
+
+Los usuarios pueden guardar un **nombre para mostrar** (Configuración en el editor); se guarda en `authenticated_users.json` junto al nombre de perfil de Google.
+
+Persistencia en JSON:
+
+- `allowed_users.json` — acceso, admin y bloqueados.
+- `authenticated_users.json` — logins, nombre Google, `display_name` opcional.
+- `execution_logs.json` — pasos de ejecución del simulador por sesión de navegador.
+- `activity_logs.json` — inferencias y generaciones de microops (para auditoría en el panel admin).
+
+Ejemplo en PowerShell:
 
 ```powershell
 $env:GOOGLE_CLIENT_ID="tu-client-id"
 $env:GOOGLE_CLIENT_SECRET="tu-client-secret"
 $env:FLASK_SECRET_KEY="cambia-esto"
-$env:EDITOR_WEB_DEFAULT_ADMINS="admin1@fi.unju.edu.ar,admin2@fi.unju.edu.ar"
+$env:EDITOR_WEB_DEFAULT_ADMINS="admin1@gmail.com,admin2@fi.unju.edu.ar"
 python app.py
 ```
 
-La interfaz de administración de usuarios no aparece enlazada en la UI principal: se accede directamente por `EDITOR_WEB_ADMIN_PATH`.
-
-Persistencia en JSON (sin base de datos):
-
-- `allowed_users.json` → usuarios con acceso, admin y bloqueados.
-- `authenticated_users.json` → historial de cuentas autenticadas (primer/último login y cantidad).
-- `security_settings.json` → bandera `login_required` para exigir o no login en el editor web.
-
-Por defecto se guardan en `editor_web/data/` junto al código. En **Render** (y similares) el sistema de archivos del contenedor suele ser **efímero**: al reiniciar el servicio esos archivos vuelven al estado del despliegue.
+La interfaz de administración no está enlazada en la barra principal: entrá por `EDITOR_WEB_ADMIN_PATH` (tras login). En **Render** (y similares) el sistema de archivos del contenedor suele ser **efímero**: al reiniciar el servicio esos archivos vuelven al estado del despliegue.
 
 ### Persistencia en producción (Render u otro PaaS)
 

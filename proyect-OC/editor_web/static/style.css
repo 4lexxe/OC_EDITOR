@@ -1566,6 +1566,54 @@ body[data-sidebar-view="trace"] #sec-memory .memory-ram-body {
   background: var(--accent-blue-light);
 }
 
+.config-profile-block {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.config-profile-block label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.config-profile-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.config-profile-row input[type="text"] {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.config-save-name-btn {
+  flex: 0 0 auto;
+}
+.config-profile-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+.config-profile-status {
+  margin: 0;
+  font-size: 12px;
+  min-height: 1.2em;
+}
+.mobile-more-email-sub {
+  display: block;
+  font-size: 11px;
+  opacity: 0.75;
+  margin-top: 4px;
+}
+
 /* Fullscreen editor */
 .editor-panel:fullscreen {
   background: var(--bg-base);

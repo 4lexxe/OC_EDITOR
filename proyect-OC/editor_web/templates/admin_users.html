@@ -107,7 +107,7 @@
       }
       .stats-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(120px, 1fr));
+        grid-template-columns: repeat(3, minmax(120px, 1fr));
         gap: 0.6rem;
         margin: 0.8rem 0;
       }
@@ -175,11 +175,58 @@
           grid-template-columns: repeat(2, minmax(120px, 1fr));
         }
       }
+      .admin-topnav {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        background: rgba(15, 23, 42, 0.92);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #334155;
+        padding: 0.55rem 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 0.75rem;
+        align-items: center;
+      }
+      .admin-topnav a {
+        color: #e2e8f0;
+        text-decoration: none;
+        font-size: 0.88rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 6px;
+      }
+      .admin-topnav a:hover {
+        background: #1e293b;
+        color: #93c5fd;
+      }
+      .admin-topnav .nav-brand {
+        font-weight: 700;
+        margin-right: 0.5rem;
+        color: #94a3b8;
+        font-size: 0.82rem;
+      }
+      .activity-table-wrap {
+        overflow: auto;
+        max-height: 420px;
+        margin-top: 0.5rem;
+      }
     </style>
   </head>
   <body>
+    <nav class="admin-topnav" aria-label="Secciones del panel admin">
+      <span class="nav-brand">Internal access</span>
+      <a href="#sec-admin-intro">Resumen</a>
+      <a href="#sec-request-log">Peticiones API</a>
+      <a href="#sec-exec-log">Ejecuciones CPU</a>
+      <a href="#sec-activity-ai">Inferir / Generar</a>
+      <a href="#sec-user-add">Alta manual</a>
+      <a href="#sec-users-list">Usuarios</a>
+      <a href="#sec-auth-history">Historial login</a>
+      <a href="/">Editor</a>
+      <a href="/logout">Salir</a>
+    </nav>
     <main>
-      <section class="card">
+      <section class="card" id="sec-admin-intro">
         <h1>Control de acceso del editor web</h1>
         <p>Sesión: <b>{{ user_email }}</b></p>
         <div class="row">
@@ -188,13 +235,18 @@
           <span class="pill">Gestión de accesos</span>
         </div>
         {% if domain %}
-        <p>Solo se aceptan cuentas del dominio <b>@{{ domain }}</b>.</p>
+        <p>Solo se aceptan cuentas del dominio <b>@{{ domain }}</b> (además del resto de reglas de abajo).</p>
         {% else %}
-        <p>Se acepta <b>cualquier correo</b> verificado con Google (Gmail, Outlook, etc.) si el correo exacto está en la lista de usuarios habilitados.</p>
-        <p class="small">Para limitar a un dominio (ej. institucional), definí <code>ALLOWED_DOMAIN</code> en el entorno.</p>
+        <p>Se acepta <b>cualquier correo verificado con Google</b> (Gmail, institucional, etc.). Con <b>registro abierto</b>, la primera vez se crea el usuario en la lista automáticamente.</p>
+        <p class="small">Para limitar a un solo dominio, definí <code>ALLOWED_DOMAIN</code> en el entorno del servidor.</p>
         {% endif %}
         <div class="row">
           <label><input type="checkbox" id="login-required" {% if login_required %}checked{% endif %} /> Login obligatorio para usar el editor web</label>
+        </div>
+        <div class="row">
+          <label><input type="checkbox" id="open-google-registration" {% if open_google_registration %}checked{% endif %} /> Registro abierto: cualquier Google verificado puede entrar (se agrega a usuarios habilitados solo)</label>
+        </div>
+        <div class="row">
           <button id="btn-save-security" class="secondary">Guardar configuración</button>
         </div>
         <p class="small">Si se desactiva, el editor queda público sin autenticación.</p>
@@ -207,11 +259,10 @@
         {% else %}
         <p class="small" style="color:#86efac;">Persistencia: directorio externo activo (recomendado para producción).</p>
         {% endif %}
-        <p><a href="/">Ir al editor</a> - <a href="/logout">Cerrar sesión</a></p>
+        <p><a href="/">Ir al editor</a> · <a href="/logout">Cerrar sesión</a></p>
       </section>
 
-      <section class="card">
-        <h2>Consola de peticiones (memoria del proceso)</h2>
+      <section class="card" id="sec-request-log">
         <p class="small">Solo memoria del proceso: útil para depurar qué llamó la API y qué respondió (vista previa acotada).</p>
         <div class="row">
           <button type="button" class="secondary" id="btn-refresh-log">Actualizar consola</button>
@@ -220,8 +271,7 @@
         <pre class="console" id="request-log-console">Cargando…</pre>
       </section>
 
-      <section class="card">
-        <h2>Registro de ejecuciones por sesión</h2>
+      <section class="card" id="sec-exec-log">
         <p class="small">Solo administradores pueden ver este historial. Cada sesión de navegador se etiqueta como “Usuario N”.</p>
         <div class="row align-center">
           <button type="button" class="secondary" id="btn-refresh-exec-log">Actualizar registros</button>
@@ -230,6 +280,8 @@
         <div class="stats-grid">
           <div class="stat-box"><div class="k">Sesiones</div><div class="v" id="exec-stat-sessions">0</div></div>
           <div class="stat-box"><div class="k">Ejecuciones</div><div class="v" id="exec-stat-total">0</div></div>
+          <div class="stat-box"><div class="k">Pasos OK</div><div class="v" id="exec-stat-ok">0</div></div>
+          <div class="stat-box"><div class="k">Pasos con error</div><div class="v" id="exec-stat-err">0</div></div>
           <div class="stat-box"><div class="k">Autenticadas</div><div class="v" id="exec-stat-auth">0</div></div>
           <div class="stat-box"><div class="k">Anónimas</div><div class="v" id="exec-stat-anon">0</div></div>
         </div>
@@ -260,8 +312,34 @@
         <pre class="console console-sm" id="execution-log-console">Seleccioná una sesión para ver sus ejecuciones.</pre>
       </section>
 
-      <section class="card">
-        <h2>Agregar o actualizar usuario</h2>
+      <section class="card" id="sec-activity-ai">
+        <h2>Inferir y generar microoperaciones</h2>
+        <p class="small">Qué código o instrucción pidió el usuario, qué respondió el servidor (inferencia, microops o error). Últimas entradas primero.</p>
+        <div class="row">
+          <button type="button" class="secondary" id="btn-refresh-activity-log">Actualizar</button>
+        </div>
+        <p class="status" id="activity-log-status"></p>
+        <div class="activity-table-wrap">
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>Cuándo</th>
+                <th>Tipo</th>
+                <th>Usuario</th>
+                <th>OK</th>
+                <th>Resumen</th>
+              </tr>
+            </thead>
+            <tbody id="activity-log-body">
+              <tr><td colspan="5">Cargando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 style="margin-top:0.9rem;">Detalle (JSON legible)</h3>
+        <pre class="console console-sm" id="activity-log-detail">Seleccioná una fila.</pre>
+      </section>
+
+      <section class="card" id="sec-user-add">
         <div class="row">
           <input type="email" id="email" placeholder="{% if domain %}usuario@{{ domain }}{% else %}correo@gmail.com{% endif %}" />
           <label><input type="checkbox" id="is_admin" /> Admin</label>
@@ -270,8 +348,7 @@
         <p class="status" id="status"></p>
       </section>
 
-      <section class="card">
-        <h2>Usuarios habilitados</h2>
+      <section class="card" id="sec-users-list">
         <div class="toolbar">
           <input class="grow" type="search" id="users-search" placeholder="Filtrar usuarios por email..." />
         </div>
@@ -301,13 +378,13 @@
           </tbody>
         </table>
       </section>
-      <section class="card">
-        <h2>Usuarios autenticados (historial)</h2>
+      <section class="card" id="sec-auth-history">
         <table>
           <thead>
             <tr>
               <th>Email</th>
-              <th>Nombre</th>
+              <th>Nombre Google</th>
+              <th>Nombre elegido</th>
               <th>Primer login</th>
               <th>Último login</th>
               <th>Cantidad</th>
@@ -318,6 +395,7 @@
             <tr>
               <td>{{ user.email }}</td>
               <td>{{ user.name }}</td>
+              <td>{{ user.display_name or "—" }}</td>
               <td>{{ user.first_login_at }}</td>
               <td>{{ user.last_login_at }}</td>
               <td>{{ user.login_count }}</td>
@@ -343,11 +421,14 @@
         return response.json();
       }
 
-      async function saveSecurityConfig(loginRequired) {
+      async function saveSecurityConfig(loginRequired, openGoogleRegistration) {
         const response = await fetch("/api/admin/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login_required: loginRequired }),
+          body: JSON.stringify({
+            login_required: loginRequired,
+            open_google_registration: openGoogleRegistration,
+          }),
         });
         return response.json();
       }
@@ -378,12 +459,17 @@
           <tr>
             <td>${user.email || ""}</td>
             <td>${user.name || ""}</td>
+            <td>${user.display_name || "—"}</td>
             <td>${user.first_login_at || ""}</td>
             <td>${user.last_login_at || ""}</td>
             <td>${user.login_count || 0}</td>
           </tr>
         `).join("");
         document.getElementById("login-required").checked = Boolean(data.login_required);
+        const ogr = document.getElementById("open-google-registration");
+        if (ogr) {
+          ogr.checked = Boolean(data.open_google_registration);
+        }
         applyUsersFilter();
       }
       function applyUsersFilter() {
@@ -397,7 +483,8 @@
 
       document.getElementById("btn-save-security").addEventListener("click", async () => {
         const loginRequired = document.getElementById("login-required").checked;
-        const data = await saveSecurityConfig(loginRequired);
+        const openReg = document.getElementById("open-google-registration").checked;
+        const data = await saveSecurityConfig(loginRequired, openReg);
         setStatus(data.message || data.error, !data.ok);
       });
 
@@ -465,7 +552,9 @@
         lines.push(`Última: ${session.last_execution_at || "-"}`);
         lines.push("".padEnd(64, "-"));
         executions.slice().reverse().forEach((entry, idx) => {
-          lines.push(`#${executions.length - idx} | ${entry.at || "-"} | PC=${entry.pc_counter_after ?? "-"} | ${entry.status_after || "-"}`);
+          const err = Boolean(entry.is_error);
+          const tag = err ? "ERROR" : "OK";
+          lines.push(`#${executions.length - idx} | ${entry.at || "-"} | ${tag} | PC=${entry.pc_counter_after ?? "-"} | ${entry.status_after || "-"}`);
           lines.push((entry.code_snapshot || "").trim() || "(sin código)");
           lines.push("".padEnd(64, "-"));
         });
@@ -502,11 +591,24 @@
         });
         sessions.sort((a, b) => String(b.last_execution_at || "").localeCompare(String(a.last_execution_at || "")));
         const totalExec = sessions.reduce((acc, s) => acc + s.executions.length, 0);
+        let okSteps = 0;
+        let errSteps = 0;
+        sessions.forEach((s) => {
+          (s.executions || []).forEach((e) => {
+            if (e.is_error) {
+              errSteps += 1;
+            } else {
+              okSteps += 1;
+            }
+          });
+        });
         const authCount = sessions.filter((s) => s.is_authenticated).length;
         const anonCount = Math.max(0, sessions.length - authCount);
 
         document.getElementById("exec-stat-sessions").textContent = String(sessions.length);
         document.getElementById("exec-stat-total").textContent = String(totalExec);
+        document.getElementById("exec-stat-ok").textContent = String(okSteps);
+        document.getElementById("exec-stat-err").textContent = String(errSteps);
         document.getElementById("exec-stat-auth").textContent = String(authCount);
         document.getElementById("exec-stat-anon").textContent = String(anonCount);
 
@@ -557,6 +659,92 @@
       document.getElementById("execution-type-filter").addEventListener("change", refreshExecutionLog);
       document.getElementById("users-search").addEventListener("input", applyUsersFilter);
       refreshExecutionLog();
+
+      function escHtml(s) {
+        return String(s ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      let lastActivityEntries = [];
+
+      function activitySummaryText(e) {
+        if (e.kind === "infer") {
+          const inf = String(e.inference || "").slice(0, 140);
+          const m = String(e.mode || "").slice(0, 36);
+          return m ? `${inf} · modo: ${m}` : inf;
+        }
+        if (e.kind === "generate") {
+          if (e.ok) {
+            return `Generó ${e.generated_ops_count ?? 0} μops · ${String(e.expression || "").slice(0, 70)}`;
+          }
+          return `Error: ${String(e.error || "").slice(0, 120)}`;
+        }
+        return JSON.stringify(e).slice(0, 140);
+      }
+
+      function setActivityLogStatus(msg, isError) {
+        const el = document.getElementById("activity-log-status");
+        if (!el) {
+          return;
+        }
+        el.textContent = msg || "";
+        el.style.color = isError ? "#fca5a5" : "#cbd5e1";
+      }
+
+      async function refreshActivityLog() {
+        const tbody = document.getElementById("activity-log-body");
+        const det = document.getElementById("activity-log-detail");
+        const res = await fetch("/api/admin/activity-logs");
+        const data = await res.json();
+        if (!data.ok) {
+          tbody.innerHTML = `<tr><td colspan="5">${escHtml(data.error || "Error")}</td></tr>`;
+          setActivityLogStatus(data.error || "No se pudo cargar.", true);
+          return;
+        }
+        const raw = (data.data && data.data.entries) || [];
+        lastActivityEntries = raw.slice().reverse();
+        if (!lastActivityEntries.length) {
+          tbody.innerHTML = `<tr><td colspan="5">(sin actividad registrada aún)</td></tr>`;
+          if (det) {
+            det.textContent = "—";
+          }
+          setActivityLogStatus("0 entradas.", false);
+          return;
+        }
+        tbody.innerHTML = lastActivityEntries
+          .map(
+            (e, idx) => `
+          <tr data-act-idx="${idx}">
+            <td>${escHtml(e.at)}</td>
+            <td>${escHtml(e.kind)}</td>
+            <td>${escHtml(e.user_display || e.user_email || "—")}</td>
+            <td>${e.ok === false ? "No" : "Sí"}</td>
+            <td>${escHtml(activitySummaryText(e))}</td>
+          </tr>
+        `
+          )
+          .join("");
+        tbody.querySelectorAll("tr[data-act-idx]").forEach((row) => {
+          row.addEventListener("click", () => {
+            tbody.querySelectorAll("tr").forEach((tr) => tr.classList.remove("selected-row"));
+            row.classList.add("selected-row");
+            const i = Number(row.dataset.actIdx);
+            if (!Number.isNaN(i) && det) {
+              det.textContent = JSON.stringify(lastActivityEntries[i], null, 2);
+            }
+          });
+        });
+        const first = tbody.querySelector('tr[data-act-idx="0"]');
+        if (first) {
+          first.click();
+        }
+        setActivityLogStatus(`Entradas: ${lastActivityEntries.length}`, false);
+      }
+
+      document.getElementById("btn-refresh-activity-log").addEventListener("click", refreshActivityLog);
+      refreshActivityLog();
 
       document.getElementById("users-body").addEventListener("click", async (event) => {
         const row = event.target.closest("tr[data-email]");

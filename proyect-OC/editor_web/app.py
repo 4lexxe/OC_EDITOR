@@ -70,8 +70,11 @@ USERS_FILE = DATA_DIR / "allowed_users.json"
 AUTH_USERS_FILE = DATA_DIR / "authenticated_users.json"
 SECURITY_FILE = DATA_DIR / "security_settings.json"
 EXECUTION_LOGS_FILE = DATA_DIR / "execution_logs.json"
+ACTIVITY_LOGS_FILE = DATA_DIR / "activity_logs.json"
 
 _execution_logs_lock = threading.Lock()
+_activity_logs_lock = threading.Lock()
+_ACTIVITY_LOG_MAX = max(200, min(20000, int(os.environ.get("EDITOR_WEB_ACTIVITY_LOG_MAX", "4000"))))
 
 REQUEST_LOG_MAX = max(20, min(500, int(os.environ.get("EDITOR_WEB_REQUEST_LOG_MAX", "120"))))
 _request_audit_log: deque[dict] = deque(maxlen=REQUEST_LOG_MAX)
@@ -144,6 +147,13 @@ def _save_authenticated_data(data: dict) -> None:
     AUTH_USERS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _sanitize_display_name(value: str) -> str:
+    s = " ".join(str(value or "").splitlines()).strip()
+    if len(s) > 80:
+        s = s[:80].rstrip()
+    return s
+
+
 def _record_authenticated_user(email: str, name: str, picture: str) -> None:
     now = datetime.now(timezone.utc).isoformat()
     data = _load_authenticated_data()
@@ -152,6 +162,7 @@ def _record_authenticated_user(email: str, name: str, picture: str) -> None:
     users[email] = {
         "name": str(name or ""),
         "picture": str(picture or ""),
+        "display_name": str(current.get("display_name", "") or ""),
         "first_login_at": current.get("first_login_at", now),
         "last_login_at": now,
         "login_count": int(current.get("login_count", 0)) + 1,
@@ -159,19 +170,57 @@ def _record_authenticated_user(email: str, name: str, picture: str) -> None:
     _save_authenticated_data(data)
 
 
+def _user_display_for_email(email: str) -> str:
+    """Nombre visible para logs y UI: display_name del usuario, nombre de Google o correo."""
+    email = _normalize_email(email)
+    if not email:
+        return "Anónimo"
+    data = _load_authenticated_data()
+    row = (data.get("users") or {}).get(email) or {}
+    dn = str(row.get("display_name", "") or "").strip()
+    if dn:
+        return dn
+    gn = str(row.get("name", "") or "").strip()
+    if gn:
+        return gn
+    return email
+
+
+def _set_user_display_name(email: str, display_name: str) -> str:
+    """Guarda el nombre elegido por el usuario (JSON). Devuelve el valor sanitizado."""
+    email = _normalize_email(email)
+    if not email:
+        return ""
+    clean = _sanitize_display_name(display_name)
+    data = _load_authenticated_data()
+    users = data.setdefault("users", {})
+    row = dict(users.get(email, {}))
+    row["display_name"] = clean
+    users[email] = row
+    _save_authenticated_data(data)
+    return clean
+
+
 def _load_security_settings() -> dict:
     if SECURITY_FILE.exists():
         try:
             data = json.loads(SECURITY_FILE.read_text(encoding="utf-8"))
-            return {"login_required": bool(data.get("login_required", True))}
+            login_required = bool(data.get("login_required", True))
+            # True = cualquier Google verificado puede entrar la primera vez (se crea en allowed_users).
+            open_google_registration = bool(data.get("open_google_registration", True))
+            return {"login_required": login_required, "open_google_registration": open_google_registration}
         except (json.JSONDecodeError, OSError):
             pass
-    return {"login_required": True}
+    return {"login_required": True, "open_google_registration": True}
 
 
 def _save_security_settings(settings: dict) -> None:
     SECURITY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SECURITY_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+    payload = {
+        "login_required": bool(settings.get("login_required", True)),
+        "open_google_registration": bool(settings.get("open_google_registration", True)),
+    }
+    SECURITY_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 _EXEC_LOG_EMPTY = {"next_session_label_num": 1, "sessions": {}}
@@ -199,6 +248,36 @@ def _save_execution_logs(data: dict) -> None:
     EXECUTION_LOGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _load_activity_logs() -> dict:
+    if ACTIVITY_LOGS_FILE.exists():
+        try:
+            data = json.loads(ACTIVITY_LOGS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("entries"), list):
+                return data
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"entries": []}
+
+
+def _save_activity_logs(data: dict) -> None:
+    ACTIVITY_LOGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ACTIVITY_LOGS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _append_activity_log(entry: dict) -> None:
+    """Registra inferencia / generación de microops para el panel admin."""
+    now = datetime.now(timezone.utc).isoformat()
+    row = dict(entry)
+    row["at"] = now
+    with _activity_logs_lock:
+        data = _load_activity_logs()
+        entries = data.setdefault("entries", [])
+        entries.append(row)
+        while len(entries) > _ACTIVITY_LOG_MAX:
+            entries.pop(0)
+        _save_activity_logs(data)
+
+
 def _append_execution_log(browser_session_id: str, user_email: str, code_snapshot: str, state_after: dict) -> None:
     sid = str(browser_session_id or "").strip()
     if not sid or len(sid) > 128:
@@ -206,17 +285,20 @@ def _append_execution_log(browser_session_id: str, user_email: str, code_snapsho
     email = _normalize_email(user_email)
     now = datetime.now(timezone.utc).isoformat()
     is_authenticated = bool(email)
-    display_name = email if email else "Anónimo"
+    display_name = _user_display_for_email(email) if email else "Anónimo"
     snap = str(code_snapshot or "")
     if len(snap) > 200_000:
         snap = snap[:200000] + "\n... [truncado]"
+    is_err = bool(state_after.get("is_error"))
     entry = {
         "at": now,
         "auth_type": "authenticated" if is_authenticated else "anonymous",
         "user_display": display_name,
+        "user_email": email,
         "code_snapshot": snap,
         "pc_counter_after": state_after.get("pc_counter"),
         "status_after": str(state_after.get("status", "") or ""),
+        "is_error": is_err,
         "registers_after": {k: str(v) for k, v in (state_after.get("registers") or {}).items()},
     }
     with _execution_logs_lock:
@@ -252,6 +334,7 @@ def _bootstrap_data_from_bundled_if_needed() -> None:
         "security_settings.json",
         "authenticated_users.json",
         "execution_logs.json",
+        "activity_logs.json",
     ):
         src = _BUNDLED_DATA_DIR / name
         dst = DATA_DIR / name
@@ -539,6 +622,12 @@ def _sanitize_browser_session_id(value: str) -> str:
     return sid
 
 
+def _activity_browser_sid(payload: dict | None) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    return _sanitize_browser_session_id(payload.get("browser_session_id", ""))
+
+
 def _state_key_from_request(payload: dict | None = None) -> str:
     browser_sid = ""
     if isinstance(payload, dict):
@@ -697,7 +786,23 @@ def auth_google_callback():
                 403,
             )
         return "El correo devuelto por Google no es válido.", 403
+
     access = _get_user_access(email)
+    settings = _load_security_settings()
+    open_reg = bool(settings.get("open_google_registration", True))
+    if not access:
+        if open_reg:
+            acc_data = _load_access_data()
+            acc_data["users"][email] = {"is_admin": False, "is_banned": False}
+            _save_access_data(acc_data)
+            access = acc_data["users"][email]
+        else:
+            session.clear()
+            return (
+                "Tu cuenta no está en la lista de usuarios habilitados. "
+                "Pedí acceso a un administrador o activá «registro abierto» en el panel interno.",
+                403,
+            )
     if not access or bool(access.get("is_banned")):
         session.clear()
         return "Tu cuenta no está habilitada para usar este sitio.", 403
@@ -720,7 +825,15 @@ def logout():
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html", user_email=session.get("user_email"), is_admin=_is_admin(), admin_path=ADMIN_PATH)
+    email = str(session.get("user_email", "") or "").strip()
+    user_display = _user_display_for_email(email) if email else ""
+    return render_template(
+        "index.html",
+        user_email=session.get("user_email"),
+        user_display=user_display,
+        is_admin=_is_admin(),
+        admin_path=ADMIN_PATH,
+    )
 
 
 @app.get(ADMIN_PATH)
@@ -743,6 +856,7 @@ def admin_users():
         users=users,
         authenticated_users=authenticated_users,
         login_required=settings.get("login_required", True),
+        open_google_registration=settings.get("open_google_registration", True),
         domain=ALLOWED_DOMAIN,
         user_email=session.get("user_email"),
         data_dir=str(DATA_DIR),
@@ -770,6 +884,7 @@ def api_admin_users_get():
             "users": users,
             "authenticated_users": authenticated_users,
             "login_required": bool(settings.get("login_required", True)),
+            "open_google_registration": bool(settings.get("open_google_registration", True)),
         }
     )
 
@@ -831,12 +946,15 @@ def api_admin_users_post():
     if action == "set_login_required":
         settings = _load_security_settings()
         settings["login_required"] = bool(payload.get("login_required", True))
+        if "open_google_registration" in payload:
+            settings["open_google_registration"] = bool(payload.get("open_google_registration"))
         _save_security_settings(settings)
         return jsonify(
             {
                 "ok": True,
                 "message": "Configuración de login actualizada.",
                 "login_required": settings["login_required"],
+                "open_google_registration": settings["open_google_registration"],
             }
         )
 
@@ -850,7 +968,13 @@ def api_admin_settings_get():
     if not _is_admin():
         return jsonify({"ok": False, "error": "No autorizado."}), 403
     settings = _load_security_settings()
-    return jsonify({"ok": True, "login_required": bool(settings.get("login_required", True))})
+    return jsonify(
+        {
+            "ok": True,
+            "login_required": bool(settings.get("login_required", True)),
+            "open_google_registration": bool(settings.get("open_google_registration", True)),
+        }
+    )
 
 
 @app.post("/api/admin/settings")
@@ -861,13 +985,17 @@ def api_admin_settings_post():
         return jsonify({"ok": False, "error": "No autorizado."}), 403
     payload = request.get_json(force=True) or {}
     settings = _load_security_settings()
-    settings["login_required"] = bool(payload.get("login_required", True))
+    if "login_required" in payload:
+        settings["login_required"] = bool(payload.get("login_required"))
+    if "open_google_registration" in payload:
+        settings["open_google_registration"] = bool(payload.get("open_google_registration"))
     _save_security_settings(settings)
     return jsonify(
         {
             "ok": True,
             "message": "Configuración de login actualizada.",
             "login_required": settings["login_required"],
+            "open_google_registration": settings["open_google_registration"],
         }
     )
 
@@ -911,6 +1039,17 @@ def api_admin_execution_logs_export():
     )
 
 
+@app.get("/api/admin/activity-logs")
+def api_admin_activity_logs():
+    if not _is_logged_in():
+        return jsonify({"ok": False, "error": "No autenticado."}), 401
+    if not _is_admin():
+        return jsonify({"ok": False, "error": "No autorizado."}), 403
+    with _activity_logs_lock:
+        data = _load_activity_logs()
+    return jsonify({"ok": True, "data": data})
+
+
 @app.route("/assets/images/<path:filename>")
 @login_required
 def assets_images(filename: str):
@@ -927,6 +1066,35 @@ def editor_images(filename: str):
 @app.get("/api/keepalive")
 def api_keepalive():
     return jsonify({"ok": True, "ts": datetime.now(timezone.utc).isoformat()})
+
+
+@app.get("/api/me")
+@login_required
+def api_me_get():
+    email = _normalize_email(str(session.get("user_email", "") or ""))
+    if not email:
+        return jsonify({"ok": True, "email": "", "display_name": "", "google_name": ""})
+    data = _load_authenticated_data()
+    row = (data.get("users") or {}).get(email) or {}
+    return jsonify(
+        {
+            "ok": True,
+            "email": email,
+            "display_name": str(row.get("display_name", "") or ""),
+            "google_name": str(row.get("name", "") or ""),
+        }
+    )
+
+
+@app.post("/api/me/display-name")
+@login_required
+def api_me_display_name():
+    email = _normalize_email(str(session.get("user_email", "") or ""))
+    if not email:
+        return jsonify({"ok": False, "error": "No hay sesión con correo (modo público o sin login)."}), 400
+    payload = request.get_json(force=True) or {}
+    clean = _set_user_display_name(email, str(payload.get("display_name", "")))
+    return jsonify({"ok": True, "display_name": clean})
 
 
 @app.get("/api/state")
@@ -984,15 +1152,29 @@ def api_infer():
             for t in instr:
                 if t is not None and t[0] is not None:
                     ops.append(t[0])
+    email = _normalize_email(str(session.get("user_email", "") or ""))
+    bsid = _activity_browser_sid(payload)
     if not ops:
-        return jsonify({"ok": True, "inference": "Sin instrucciones para inferir", "mode": ""})
-    return jsonify(
+        infer_txt = "Sin instrucciones para inferir"
+        mode_txt = ""
+        body = {"ok": True, "inference": infer_txt, "mode": mode_txt}
+    else:
+        infer_txt = Inferidor.inferir(ops)
+        mode_txt = Inferidor.clasificar_modo_direccionamiento(ops)
+        body = {"ok": True, "inference": infer_txt, "mode": mode_txt}
+    _append_activity_log(
         {
+            "kind": "infer",
+            "user_email": email,
+            "user_display": _user_display_for_email(email) if email else "",
+            "browser_session_id": bsid,
             "ok": True,
-            "inference": Inferidor.inferir(ops),
-            "mode": Inferidor.clasificar_modo_direccionamiento(ops),
+            "inference": str(body.get("inference", ""))[:8000],
+            "mode": str(body.get("mode", ""))[:500],
+            "code_excerpt": code[:12000],
         }
     )
+    return jsonify(body)
 
 
 @app.post("/api/generate")
@@ -1001,19 +1183,48 @@ def api_generate():
     payload = request.get_json(force=True) or {}
     expresion = str(payload.get("expression", "")).strip()
     modo = payload.get("mode", None)
+    email = _normalize_email(str(session.get("user_email", "") or ""))
+    bsid = _activity_browser_sid(payload)
+    base_log = {
+        "kind": "generate",
+        "user_email": email,
+        "user_display": _user_display_for_email(email) if email else "",
+        "browser_session_id": bsid,
+        "expression": expresion[:4000],
+        "generate_mode": modo if modo is None else str(modo)[:200],
+    }
     if not expresion:
+        _append_activity_log({**base_log, "ok": False, "error": "La instrucción no puede estar vacía."})
         return jsonify({"ok": False, "error": "La instrucción no puede estar vacía."}), 400
     try:
         ops = generar(expresion, modo)
-        ok, detalle = Inferidor.verificar_equivalencia(expresion, ops)
-        if not ok:
-            raise ErrorGeneracion(
-                "La secuencia generada no cumple semánticamente la instrucción solicitada.\n"
-                f"{detalle}"
-            )
-        return jsonify({"ok": True, "ops": ops, "message": f"Generadas {len(ops)} instrucciones."})
     except ErrorGeneracion as exc:
+        _append_activity_log({**base_log, "ok": False, "error": str(exc)[:12000]})
         return jsonify({"ok": False, "error": str(exc)}), 400
+    ok, detalle = Inferidor.verificar_equivalencia(expresion, ops)
+    if not ok:
+        err_text = "La secuencia generada no cumple semánticamente la instrucción solicitada.\n" + str(detalle)
+        _append_activity_log(
+            {
+                **base_log,
+                "ok": False,
+                "error": err_text[:12000],
+                "generated_ops_count": len(ops),
+                "generated_ops": list(ops)[:200],
+            }
+        )
+        return jsonify({"ok": False, "error": err_text}), 400
+    msg_ok = f"Generadas {len(ops)} instrucciones."
+    _append_activity_log(
+        {
+            **base_log,
+            "ok": True,
+            "message": msg_ok,
+            "generated_ops_count": len(ops),
+            "generated_ops": list(ops)[:200],
+        }
+    )
+    return jsonify({"ok": True, "ops": ops, "message": msg_ok})
 
 
 @app.post("/api/trace")

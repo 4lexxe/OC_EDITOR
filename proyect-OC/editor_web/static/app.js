@@ -76,6 +76,7 @@ let lastTraceRows = [];
 
 const editorFlags = window.__EDITOR_FLAGS__ || {};
 const IS_ADMIN = Boolean(editorFlags.is_admin);
+const USER_EMAIL = String(editorFlags.user_email || "").trim();
 
 const editorHistory = {
   stack: [],
@@ -275,6 +276,40 @@ function applyEditorFontSize(size) {
   localStorage.setItem(FONT_SIZE_KEY, String(value));
   updateLineNumbers();
   renderAutocomplete();
+}
+
+async function loadProfileIntoConfigModal() {
+  if (!USER_EMAIL) {
+    return;
+  }
+  const inp = byId("profile-display-name");
+  const hint = byId("profile-email-hint");
+  const st = byId("profile-save-status");
+  if (!inp) {
+    return;
+  }
+  try {
+    const res = await fetch("/api/me", { credentials: "same-origin" });
+    const data = await res.json();
+    if (!data.ok) {
+      return;
+    }
+    inp.value = data.display_name || "";
+    if (hint) {
+      hint.textContent = data.google_name ? `Google: ${data.google_name} · ${data.email}` : data.email || "";
+    }
+    if (st) {
+      st.textContent = "";
+      st.style.color = "";
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function openConfigModal() {
+  void loadProfileIntoConfigModal();
+  byId("config-modal").showModal();
 }
 
 function getCurrentLineInfo() {
@@ -843,7 +878,7 @@ async function refreshTrace() {
 async function refreshInference() {
   const instEl = byId("infer-instruction");
   const modeEl = byId("infer-mode");
-  const data = await postJson("/api/infer", { code: byId("code").value });
+  const data = await postJson("/api/infer", { code: byId("code").value, browser_session_id: getBrowserSessionId() });
   if (!data.ok) {
     if (instEl) {
       instEl.textContent = "—";
@@ -1070,7 +1105,11 @@ function initEvents() {
   byId("btn-generate").addEventListener("click", async () => {
     const expression = byId("gen-expression").value.trim();
     const mode = byId("gen-mode").value;
-    const data = await postJson("/api/generate", { expression, mode });
+    const data = await postJson("/api/generate", {
+      expression,
+      mode,
+      browser_session_id: getBrowserSessionId(),
+    });
     if (!data.ok) {
       byId("gen-result").textContent = `Error: ${data.error || "No se pudo generar."}`;
       setStatus("Error al generar.", true);
@@ -1195,7 +1234,7 @@ function initEvents() {
       } else if (view === "arch") {
         byId("sec-arch")?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "config") {
-        byId("config-modal").showModal();
+        openConfigModal();
       }
     });
   });
@@ -1210,12 +1249,26 @@ function initEvents() {
   });
 
   byId("btn-config").addEventListener("click", () => {
-    byId("config-modal").showModal();
+    openConfigModal();
   });
 
   byId("btn-config-close").addEventListener("click", () => {
     byId("config-modal").close();
   });
+
+  const btnSaveDisplay = byId("btn-save-display-name");
+  if (btnSaveDisplay) {
+    btnSaveDisplay.addEventListener("click", async () => {
+      const inp = byId("profile-display-name");
+      const st = byId("profile-save-status");
+      const v = inp ? inp.value : "";
+      const data = await postJson("/api/me/display-name", { display_name: v });
+      if (st) {
+        st.textContent = data.ok ? "Guardado. Recargá la página para ver el nombre en la barra superior." : data.error || "Error";
+        st.style.color = data.ok ? "" : "#f87171";
+      }
+    });
+  }
 
   byId("font-size-range").addEventListener("input", () => {
     applyEditorFontSize(byId("font-size-range").value);
