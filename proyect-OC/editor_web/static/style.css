@@ -593,6 +593,10 @@ body[data-sidebar-view="trace"] #sec-memory .memory-ram-body {
   flex-shrink: 0;
 }
 
+.hidden-panel {
+  display: none !important;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
