@@ -76,6 +76,62 @@
       "mode": "",
       "code_excerpt": "",
       "at": "2026-09-16T16:27:32.107147+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "Sin instrucciones para inferir",
+      "mode": "",
+      "code_excerpt": "adasdas",
+      "at": "2026-09-16T17:30:05.187450+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "Sin instrucciones para inferir",
+      "mode": "",
+      "code_excerpt": "adasdas",
+      "at": "2026-09-16T17:30:08.290046+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "M <- 3M - ACC/8 + 2  |  ACC <- 3M - ACC/8 + 2",
+      "mode": "Indirecto",
+      "code_excerpt": "GPR(AD) -> MAR\nM -> GPR\nGPR(AD) -> MAR\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\n\nM -> GPR\nGPR + ACC -> ACC\nGPR + ACC -> ACC\nGPR + ACC -> ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC\n\nACC -> GPR\nGPR -> M",
+      "at": "2026-09-16T17:30:57.689935+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- ACC/8 + F + 2",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "PC -> MAR\nM -> GPR, PC + 1 -> PC\nGPR(OP) -> OPR\n\nACC -> GPR\n\n0 -> ACC\nROL F, ACC\n\n0 -> F\nROL F, ACC\n0 -> F\nROL F, ACC\n0 -> F\nROL F, ACC\n\nGPR + ACC -> ACC\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC",
+      "at": "2026-09-16T17:37:43.048793+00:00"
+    },
+    {
+      "kind": "exercise_verify",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "",
+      "exercise_id": "e10-tryhard-parcial-doble-division",
+      "ok": true,
+      "casos_aprobados": 3,
+      "casos_totales": 3,
+      "code_excerpt": "GPR(AD) -> MAR\nM -> GPR\nGPR(AD) -> MAR\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\nACC! -> ACC\nACC+1 -> ACC\nM -> GPR\nGPR+ACC -> ACC\nGPR+ACC -> ACC\nGPR+ACC -> ACC\nACC+1 -> ACC\nACC+1 -> ACC\nACC -> GPR\nGPR -> M",
+      "at": "2026-09-16T18:35:50.906143+00:00"
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "next_session_label_num": 2,
+  "next_session_label_num": 3,
   "sessions": {
     "e006496f-bba0-4acd-acb5-f3446ec456d7": {
       "label": "Usuario 1",
@@ -127,9 +127,122 @@
             "F": "0",
             "M": "000000000000"
           }
+        },
+        {
+          "at": "2026-09-16T17:30:05.176546+00:00",
+          "auth_type": "anonymous",
+          "user_display": "Anónimo",
+          "user_email": "",
+          "code_snapshot": "adasdas",
+          "pc_counter_after": 6,
+          "status_after": "Fin del programa — ACC=000000000000",
+          "is_error": false,
+          "registers_after": {
+            "PC": "00000000",
+            "ACC": "000000000000",
+            "GPR": "000000000000",
+            "F": "0",
+            "M": "000000000000"
+          }
+        },
+        {
+          "at": "2026-09-16T17:30:08.273275+00:00",
+          "auth_type": "anonymous",
+          "user_display": "Anónimo",
+          "user_email": "",
+          "code_snapshot": "adasdas",
+          "pc_counter_after": 6,
+          "status_after": "Fin del programa — ACC=000000000000",
+          "is_error": false,
+          "registers_after": {
+            "PC": "00000000",
+            "ACC": "000000000000",
+            "GPR": "000000000000",
+            "F": "0",
+            "M": "000000000000"
+          }
+        },
+        {
+          "at": "2026-09-16T17:30:57.258760+00:00",
+          "auth_type": "anonymous",
+          "user_display": "Anónimo",
+          "user_email": "",
+          "code_snapshot": "GPR(AD) -> MAR\nM -> GPR\nGPR(AD) -> MAR\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\n\nM -> GPR\nGPR + ACC -> ACC\nGPR + ACC -> ACC\nGPR + ACC -> ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC\n\nACC -> GPR\nGPR -> M",
+          "pc_counter_after": 7,
+          "status_after": "Línea 7: 0 -> F  →  ZERO_F",
+          "is_error": false,
+          "registers_after": {
+            "PC": "00000000",
+            "ACC": "000000000000",
+            "GPR": "000000000000",
+            "F": "0",
+            "M": "000000000000"
+          }
+        },
+        {
+          "at": "2026-09-16T17:37:42.900857+00:00",
+          "auth_type": "anonymous",
+          "user_display": "Anónimo",
+          "user_email": "",
+          "code_snapshot": "PC -> MAR\nM -> GPR, PC + 1 -> PC\nGPR(OP) -> OPR\n\nACC -> GPR\n\n0 -> ACC\nROL F, ACC\n\n0 -> F\nROL F, ACC\n0 -> F\nROL F, ACC\n0 -> F\nROL F, ACC\n\nGPR + ACC -> ACC\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC",
+          "pc_counter_after": 8,
+          "status_after": "Línea 8: ROL F, ACC  →  ROL_F_ACC",
+          "is_error": false,
+          "registers_after": {
+            "PC": "00000000",
+            "ACC": "000000000000",
+            "GPR": "000000000000",
+            "F": "0",
+            "M": "000000000000"
+          }
         }
       ],
-      "last_execution_at": "2026-09-16T16:27:32.092112+00:00"
+      "last_execution_at": "2026-09-16T17:37:42.900857+00:00"
+    },
+    "test-123": {
+      "label": "Usuario 2",
+      "browser_session_id": "test-123",
+      "user_email": "",
+      "is_authenticated": false,
+      "user_display": "Anónimo",
+      "created_at": "2026-09-16T17:32:35.406644+00:00",
+      "executions": [
+        {
+          "at": "2026-09-16T17:32:35.406644+00:00",
+          "auth_type": "anonymous",
+          "user_display": "Anónimo",
+          "user_email": "",
+          "code_snapshot": "ACC+1 -> ACC\n0 -> F",
+          "pc_counter_after": 1,
+          "status_after": "Línea 1: ACC+1 -> ACC  →  INC_ACC",
+          "is_error": false,
+          "registers_after": {
+            "PC": "00000000",
+            "ACC": "000000000001",
+            "GPR": "000000000000",
+            "F": "0",
+            "M": "000000000000"
+          }
+        },
+        {
+          "at": "2026-09-16T17:32:41.146113+00:00",
+          "auth_type": "anonymous",
+          "user_display": "Anónimo",
+          "user_email": "",
+          "code_snapshot": "ACC+1 -> ACC\n0 -> F",
+          "pc_counter_after": 2,
+          "status_after": "Línea 2: 0 -> F  →  ZERO_F",
+          "is_error": false,
+          "registers_after": {
+            "PC": "00000000",
+            "ACC": "000000000001",
+            "GPR": "000000000000",
+            "F": "0",
+            "M": "000000000000"
+          }
+        }
+      ],
+      "last_execution_at": "2026-09-16T17:32:41.146113+00:00"
     }
   }
 }
