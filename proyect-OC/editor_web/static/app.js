@@ -29,7 +29,7 @@ async function postJson(url, payload) {
 }
 
 const state = {
-  registers: { PC: "000000000000", ACC: "000000000000", GPR: "000000000000", F: "0", M: "000000000000" },
+  registers: { PC: "00000000", ACC: "000000000000", GPR: "000000000000", F: "0", M: "000000000000" },
   memory: Array.from({ length: 256 }, () => "000000000000"),
   code: "",
   pc_counter: 0,
@@ -42,7 +42,7 @@ const INSTRUCCIONES = [
   ["GPR+ACC -> ACC", "Suma GPR + ACC en ACC"],
   ["ACC -> GPR", "Copia ACC a GPR"],
   ["GPR -> ACC", "Copia GPR a ACC"],
-  ["GPR -> M", "Copia GPR al registro M"],
+  ["GPR -> M", "Escribe GPR en RAM[MAR]"],
   ["M -> GPR", "Copia M a GPR"],
   ["M -> ACC", "Copia M a ACC"],
   ["ACC! -> ACC", "NOT de ACC"],
@@ -73,6 +73,11 @@ const DRAFT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** Última traza renderizada (para copiar TSV). */
 let lastTraceRows = [];
+let selectedTraceCycle = null;
+let traceRequestId = 0;
+let traceExamples = [];
+const TRACE_REGISTERS = ["PC", "MAR", "GPR", "GPR_OP", "GPR_AD", "OPR", "ACC", "F", "M"];
+const TRACE_LABELS = { GPR_OP: "GPR(OP)", GPR_AD: "GPR(AD)" };
 
 const editorFlags = window.__EDITOR_FLAGS__ || {};
 const IS_ADMIN = Boolean(editorFlags.is_admin);
@@ -380,7 +385,7 @@ function binStringToUiHex(bits, s) {
   }
   const z = (raw.padStart(bits, "0").slice(-bits) || "0".repeat(bits));
   const n = parseInt(z, 2) & ((1 << bits) - 1);
-  return n.toString(16).toUpperCase().padStart(3, "0").slice(-3);
+  return n.toString(16).toUpperCase().padStart(Math.ceil(bits / 4), "0").slice(-Math.ceil(bits / 4));
 }
 
 function canSnapshotFromUi() {
@@ -412,7 +417,7 @@ function isValidCpuSnapshot(s) {
 function buildFullStateFromUi() {
   const p = registerPayload();
   const regHex = {
-    PC: binStringToUiHex(12, p.registers.PC),
+    PC: binStringToUiHex(8, p.registers.PC),
     ACC: binStringToUiHex(12, p.registers.ACC),
     GPR: binStringToUiHex(12, p.registers.GPR),
     F: binStringToUiHex(1, p.registers.F),
@@ -550,22 +555,22 @@ function renderRegisters(registers, registersHex) {
     container.dataset.ready = "1";
     ["PC", "ACC", "GPR", "F", "M"].forEach((name) => {
       byId(`reg-${name}-bin`).addEventListener("input", () => {
-        const bits = name === "F" ? 1 : 12;
+        const bits = name === "F" ? 1 : name === "PC" ? 8 : 12;
         const clean = byId(`reg-${name}-bin`).value.replace(/[^01]/g, "");
         byId(`reg-${name}-bin`).value = clean.slice(-bits).padStart(bits, "0");
         const v = byId(`reg-${name}-bin`).value;
         const n = parseInt(v, 2);
-        byId(`reg-${name}-hex`).value = bits === 1 ? String(n & 1) : n.toString(16).toUpperCase().padStart(3, "0").slice(-3);
+        byId(`reg-${name}-hex`).value = bits === 1 ? String(n & 1) : n.toString(16).toUpperCase().padStart(Math.ceil(bits / 4), "0").slice(-Math.ceil(bits / 4));
         scheduleLiveUpdate();
         schedulePersistSessionDraft();
       });
       byId(`reg-${name}-hex`).addEventListener("input", () => {
-        const bits = name === "F" ? 1 : 12;
-        const maxLen = bits === 1 ? 1 : 3;
+        const bits = name === "F" ? 1 : name === "PC" ? 8 : 12;
+        const maxLen = Math.ceil(bits / 4);
         const hex = byId(`reg-${name}-hex`).value.toUpperCase().replace(/[^0-9A-F]/g, "").slice(-maxLen);
         byId(`reg-${name}-hex`).value = hex;
         if (!hex) {
-          byId(`reg-${name}-bin`).value = bits === 1 ? "0" : "000000000000";
+          byId(`reg-${name}-bin`).value = "0".repeat(bits);
           scheduleLiveUpdate();
           schedulePersistSessionDraft();
           return;
@@ -591,7 +596,7 @@ function renderMemory(memory, memoryHex, editableId, readonly = false) {
   if (!container.dataset.ready) {
     container.innerHTML = Array.from({ length: 256 }, (_, i) => `
       <div class="mem-row">
-        <span class="addr">${i.toString(16).toUpperCase().padStart(4, "0")}</span>
+        <span class="addr">${i.toString(16).toUpperCase().padStart(2, "0")}</span>
         ${readonly ? `<span id="${editableId}-bin-${i}">000000000000</span>` : `<input id="mem-edit-${i}" />`}
         <span class="hex" id="${editableId}-hex-${i}">000</span>
       </div>
@@ -604,7 +609,7 @@ function renderMemory(memory, memoryHex, editableId, readonly = false) {
           byId(`mem-edit-${i}`).value = clean.slice(-12).padStart(12, "0");
           const v = byId(`mem-edit-${i}`).value;
           const n = parseInt(v, 2);
-          byId(`${editableId}-hex-${i}`).textContent = n.toString(16).toUpperCase().padStart(3, "0").slice(-3);
+          byId(`${editableId}-hex-${i}`).textContent = n.toString(16).toUpperCase().padStart(3, "0");
           scheduleLiveUpdate();
           schedulePersistSessionDraft();
         });
@@ -626,7 +631,7 @@ function bootstrapCpuPanelsFromState() {
   const regsContainer = byId("registers");
   if (regsContainer && !regsContainer.dataset.ready) {
     const registersHex = {
-      PC: binStringToUiHex(12, state.registers.PC),
+      PC: binStringToUiHex(8, state.registers.PC),
       ACC: binStringToUiHex(12, state.registers.ACC),
       GPR: binStringToUiHex(12, state.registers.GPR),
       F: binStringToUiHex(1, state.registers.F),
@@ -662,66 +667,140 @@ function renderResults(registers) {
 
 function renderTrace(rows) {
   const tbody = byId("trace-rows");
-  if (!tbody) {
-    return;
-  }
-  const list = rows || [];
-  lastTraceRows = list;
+  if (!tbody) return;
+  lastTraceRows = Array.isArray(rows) ? rows : [];
   const esc = escapeHtml;
-  tbody.innerHTML = list.map((r, i) => {
-    const isLast = i === list.length - 1 && list.length > 0;
-    const isInitial = Number(r.ciclo) === 0;
-    const trClass = [isLast ? "row-highlight" : "", isInitial ? "trace-row-initial" : ""].filter(Boolean).join(" ");
-    return `<tr class="${trClass}">
-      <td>${esc(String(r.ciclo ?? ""))}</td>
-      <td>${esc(String(r.micro ?? ""))}</td>
-      <td>${esc(String(r.PC ?? ""))}</td>
-      <td>${esc(String(r.MAR ?? ""))}</td>
-      <td>${esc(String(r.GPR ?? ""))}</td>
-      <td>${esc(String(r.GPR_OP ?? ""))}</td>
-      <td>${esc(String(r.GPR_AD ?? ""))}</td>
-      <td>${esc(String(r.OPR ?? ""))}</td>
-      <td>${esc(String(r.ACC ?? ""))}</td>
-      <td>${esc(String(r.F ?? ""))}</td>
-      <td>${esc(String(r.M ?? ""))}</td>
-    </tr>`;
-  }).join("");
+  let previousPhase = null;
+  tbody.innerHTML = lastTraceRows.length ? lastTraceRows.map((r) => {
+    const phase = r.fase || (Number(r.ciclo) === 0 ? "Inicial" : "Ejecución");
+    let separator = "";
+    if (phase !== previousPhase && phase !== "Inicial") {
+      separator = `<tr class="trace-phase"><th colspan="11" scope="rowgroup"><span class="trace-phase-dot ${phase === "Búsqueda" ? "is-fetch" : ""}"></span>${esc(phase)}${phase === "Búsqueda" ? " · lectura y decodificación" : " · microoperaciones del programa"}</th></tr>`;
+    }
+    previousPhase = phase;
+    const values = r.valores || r;
+    const changes = new Set(r.cambios || []);
+    const cells = TRACE_REGISTERS.map((key) => {
+      const value = String(r[key] ?? "");
+      const full = String(values[key] ?? "");
+      return `<td class="${changes.has(key) ? "trace-cell-changed" : ""}" title="${esc((TRACE_LABELS[key] || key) + " = " + full)}">${esc(value)}</td>`;
+    }).join("");
+    const operation = (r.micro || "").replaceAll("->", "→");
+    return separator + `<tr class="trace-data-row ${Number(r.ciclo) === 0 ? "trace-row-initial" : ""}" data-cycle="${Number(r.ciclo)}" tabindex="0" aria-label="Ciclo ${Number(r.ciclo)}: ${esc(operation)}">
+      <th scope="row">${Number(r.ciclo)}</th><td class="trace-micro-cell">${esc(operation)}</td>${cells}</tr>`;
+  }).join("") : '<tr><td colspan="11" class="trace-empty"><strong>Tu tabla empieza aquí</strong><span>Cargá un ejemplo del material o escribí las microoperaciones de tu ejercicio.</span></td></tr>';
+  const exists = lastTraceRows.some((r) => Number(r.ciclo) === selectedTraceCycle);
+  selectTraceCycle(exists ? selectedTraceCycle : Number(lastTraceRows[0]?.ciclo ?? 0), false);
+  const decimal = byId("trace-decimal")?.checked;
+  byId("trace-head-pc").textContent = decimal ? "PC (dec)" : "PC";
+  byId("trace-head-mar").textContent = decimal ? "MAR (dec)" : "MAR";
+}
+
+function selectTraceCycle(cycle, scroll = true) {
+  const row = lastTraceRows.find((r) => Number(r.ciclo) === Number(cycle));
+  const inspector = byId("trace-inspector");
+  if (!inspector) return;
+  inspector.hidden = !row;
+  if (!row) return;
+  selectedTraceCycle = Number(row.ciclo);
+  byId("trace-rows").querySelectorAll(".trace-data-row").forEach((element) => {
+    const selected = Number(element.dataset.cycle) === selectedTraceCycle;
+    element.classList.toggle("trace-row-selected", selected);
+    element.setAttribute("aria-selected", String(selected));
+    if (selected && scroll) element.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+  byId("trace-selected-title").textContent = selectedTraceCycle === 0 ? "Estado inicial" : `Ciclo ${selectedTraceCycle} · ${row.fase}`;
+  byId("trace-selected-operation").textContent = String(row.micro || "").replaceAll("->", "→");
+  const values = row.valores || row;
+  byId("trace-selected-registers").innerHTML = TRACE_REGISTERS.map((key) => `<div class="${row.cambios?.includes(key) ? "is-changed" : ""}"><dt>${TRACE_LABELS[key] || key}</dt><dd>${escapeHtml(String(values[key] ?? ""))}</dd></div>`).join("");
+  const accesses = row.accesos || [];
+  const memory = byId("trace-selected-memory");
+  memory.hidden = !accesses.length;
+  memory.textContent = accesses.map((a) => `${a.tipo === "escritura" ? "Escritura" : "Lectura"}: M[$${a.dir.toString(16).toUpperCase().padStart(2, "0")}] = $${a.dato.toString(16).toUpperCase().padStart(3, "0")}`).join(" · ");
+  const index = lastTraceRows.indexOf(row);
+  byId("trace-prev").disabled = index <= 0;
+  byId("trace-next").disabled = index >= lastTraceRows.length - 1;
+}
+
+function moveTraceSelection(delta) {
+  const index = lastTraceRows.findIndex((row) => Number(row.ciclo) === selectedTraceCycle);
+  const row = lastTraceRows[index + delta];
+  if (row) selectTraceCycle(row.ciclo);
 }
 
 function copyTraceTableAsTsv() {
-  const headers = ["Ciclo", "Microoperación", "PC", "MAR", "GPR", "GPR(OP)", "GPR(AD)", "OPR", "ACC", "F", "M"];
-  const rows = lastTraceRows.length ? lastTraceRows : [];
-  if (!rows.length) {
+  if (!lastTraceRows.length) {
     setStatus("No hay filas en la traza para copiar.", true);
     return;
   }
-  const lines = [
-    headers.join("\t"),
-    ...rows.map((r) =>
-      [
-        r.ciclo ?? "",
-        r.micro ?? "",
-        r.PC ?? "",
-        r.MAR ?? "",
-        r.GPR ?? "",
-        r.GPR_OP ?? "",
-        r.GPR_AD ?? "",
-        r.OPR ?? "",
-        r.ACC ?? "",
-        r.F ?? "",
-        r.M ?? "",
-      ].join("\t"),
-    ),
-  ];
-  const text = lines.join("\n");
-  navigator.clipboard.writeText(text).then(
+  const headers = ["Ciclo", "Fase", "Microoperación", ...TRACE_REGISTERS.map((k) => TRACE_LABELS[k] || k)];
+  const lines = [headers.join("\t"), ...lastTraceRows.map((r) => [r.ciclo, r.fase, r.micro, ...TRACE_REGISTERS.map((k) => r[k] ?? "")].join("\t"))];
+  navigator.clipboard.writeText(lines.join("\n")).then(
     () => setStatus("Tabla de traza copiada (TSV)."),
     () => setStatus("No se pudo copiar la traza.", true),
   );
 }
 
+async function loadTraceExamples() {
+  try {
+    const response = await fetch("/api/trace/examples", { credentials: "same-origin" });
+    const data = await response.json();
+    if (!data.ok) return;
+    traceExamples = data.examples || [];
+    for (const example of traceExamples) {
+      const option = document.createElement("option");
+      option.value = example.id;
+      option.textContent = example.titulo;
+      byId("trace-example").append(option);
+    }
+  } catch (error) { console.error("No se pudieron cargar los ejemplos", error); }
+}
+
+async function applyTraceExample() {
+  const example = traceExamples.find((e) => e.id === byId("trace-example").value);
+  if (!example) return;
+  const registers = {}, registersHex = {};
+  for (const key of ["PC", "ACC", "GPR", "F", "M"]) {
+    const bits = key === "F" ? 1 : key === "PC" ? 8 : 12;
+    registers[key] = (example.registros[key] || 0).toString(2).padStart(bits, "0");
+    registersHex[key] = binStringToUiHex(bits, registers[key]);
+  }
+  const memory = Array.from({ length: 256 }, (_, i) => (example.memoria[i] || 0).toString(2).padStart(12, "0"));
+  applyState({ code: example.codigo, registers, registers_hex: registersHex, memory,
+    memory_hex: memory.map((v) => binStringToUiHex(12, v)), pc_counter: 0, status: "Ejemplo cargado.", is_error: false });
+  byId("trace-code").value = example.codigo;
+  byId("trace-mode").value = "editor";
+  byId("trace-compact").checked = true;
+  byId("trace-inicial").checked = true;
+  byId("trace-decimal").checked = false;
+  selectedTraceCycle = null;
+  const source = byId("trace-example-source");
+  source.hidden = false;
+  source.textContent = example.descripcion + " Referencia: " + example.fuente;
+  schedulePersistSessionDraft();
+  await refreshTrace();
+}
+
+function commitRamHex() {
+  const address = byId("ram-address").value.trim().replace(/^0x|^\$/i, "");
+  const value = byId("ram-value").value.trim().replace(/^0x|^\$/i, "");
+  const status = byId("ram-edit-status");
+  if (!/^[0-9a-f]{1,2}$/i.test(address) || !/^[0-9a-f]{1,3}$/i.test(value)) {
+    status.textContent = "Usá una dirección entre 00 y FF y un dato entre 000 y FFF.";
+    return;
+  }
+  const index = parseInt(address, 16);
+  const input = byId(`mem-edit-${index}`);
+  input.value = parseInt(value, 16).toString(2).padStart(12, "0");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  status.textContent = `M[$${address.toUpperCase().padStart(2, "0")}] = $${value.toUpperCase().padStart(3, "0")}`;
+  refreshTrace();
+}
+
 function updateLineNumbers() {
   const code = byId("code").value || "";
+  const traceCode = byId("trace-code");
+  if (traceCode && traceCode.value !== code) traceCode.value = code;
   const lines = code.split("\n").length;
   byId("line-numbers").value = Array.from({ length: lines }, (_, i) => `${i + 1}`).join("\n");
   syncEditorMetrics();
@@ -834,52 +913,46 @@ function updateAutocompleteFromEditor() {
 
 async function refreshTrace() {
   const st = byId("trace-status");
+  const requestId = ++traceRequestId;
   try {
     const payload = registerPayload();
-    const data = await postJson("/api/trace", {
-      code: payload.code,
-      registers: payload.registers,
-      memory: payload.memory,
+    const code = byId("code").value;
+    if (byId("trace-code").value !== code) byId("trace-code").value = code;
+    const data = await postJson("/api/trace", { ...payload, code,
       trace_mode: byId("trace-mode")?.value ?? "fetch",
       mar_pc_decimal: Boolean(byId("trace-decimal")?.checked),
       compact: Boolean(byId("trace-compact")?.checked),
-      include_initial_row: byId("trace-inicial") ? byId("trace-inicial").checked : true,
+      include_initial_row: Boolean(byId("trace-inicial")?.checked),
     });
-    if (!data || data.ok === false) {
-      const msg = (data && data.error) || "No se pudo actualizar la traza.";
-      if (st) {
-        st.textContent = msg;
-        st.classList.add("trace-steps--error");
-      }
-      return;
-    }
+    if (requestId !== traceRequestId) return;
+    if (!data.ok) throw new Error(data.error || "No se pudo actualizar la traza.");
     renderTrace(data.rows || []);
-    if (st) {
-      st.classList.toggle("trace-steps--error", Boolean(data.error));
-      st.textContent = data.error || `${(data.rows || []).length} μops simuladas`;
-    }
-    const tm = byId("trace-memory");
-    if (tm) {
-      tm.textContent = data.memory_info || "";
-    }
-    const te = byId("trace-explanation");
-    if (te) {
-      te.textContent = data.explanation || "";
-    }
-  } catch (e) {
-    console.error(e);
-    if (st) {
-      st.textContent = `Error al simular la traza: ${e && e.message ? e.message : String(e)}`;
-      st.classList.add("trace-steps--error");
-    }
+    const summary = data.summary || {};
+    byId("trace-cycle-count").textContent = summary.cycles ?? 0;
+    byId("trace-fetch-count").textContent = summary.fetch_cycles ?? 0;
+    byId("trace-write-count").textContent = summary.writes ?? 0;
+    byId("trace-final-acc").textContent = "$" + (summary.acc || "000");
+    st.classList.toggle("trace-steps--error", Boolean(data.error));
+    st.textContent = data.error || (summary.cycles ? `${summary.cycles} ciclos · ${summary.microops} microoperaciones · Seleccioná una fila para revisar sus valores.` : "Cargá un ejemplo o escribí tu código para empezar.");
+    byId("trace-memory").textContent = data.memory_info || "";
+    byId("trace-explanation").textContent = data.explanation || "";
+  } catch (error) {
+    if (requestId !== traceRequestId) return;
+    st.textContent = `Error al simular la traza: ${error.message || String(error)}`;
+    st.classList.add("trace-steps--error");
   }
 }
 
 async function refreshInference() {
   const instEl = byId("infer-instruction");
   const modeEl = byId("infer-mode");
+  const notesEl = byId("infer-notes");
   const data = await postJson("/api/infer", { code: byId("code").value, browser_session_id: getBrowserSessionId() });
   if (!data.ok) {
+    if (notesEl) {
+      notesEl.textContent = "";
+      notesEl.hidden = true;
+    }
     if (instEl) {
       instEl.textContent = "—";
       instEl.classList.add("infer-step-value--empty");
@@ -892,6 +965,11 @@ async function refreshInference() {
   }
   const rawInstr = (data.inference || "").trim();
   const rawMode = (data.mode || "").trim();
+  if (notesEl) {
+    const notes = Array.isArray(data.notes) ? data.notes : [];
+    notesEl.textContent = notes.join("\n");
+    notesEl.hidden = notes.length === 0;
+  }
   if (instEl) {
     instEl.textContent = rawInstr || "—";
     instEl.classList.toggle("infer-step-value--empty", !rawInstr);
@@ -1019,6 +1097,37 @@ function scheduleLiveUpdate() {
 }
 
 function initEvents() {
+  byId("trace-example").addEventListener("change", () => {
+    byId("btn-load-trace-example").disabled = !byId("trace-example").value;
+  });
+  byId("btn-load-trace-example").addEventListener("click", applyTraceExample);
+  byId("btn-set-ram").addEventListener("click", commitRamHex);
+  byId("ram-value").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") commitRamHex();
+  });
+  byId("trace-code").addEventListener("input", () => {
+    byId("code").value = byId("trace-code").value;
+    byId("code").dispatchEvent(new Event("input", { bubbles: true }));
+    byId("trace-example-source").hidden = true;
+  });
+  byId("trace-rows").addEventListener("click", (event) => {
+    const row = event.target.closest("[data-cycle]");
+    if (row) selectTraceCycle(Number(row.dataset.cycle), false);
+  });
+  byId("trace-rows").addEventListener("keydown", (event) => {
+    const row = event.target.closest("[data-cycle]");
+    if (!row) return;
+    if (["Enter", " "].includes(event.key)) {
+      event.preventDefault(); selectTraceCycle(Number(row.dataset.cycle), false);
+    }
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault(); selectTraceCycle(Number(row.dataset.cycle), false);
+      moveTraceSelection(event.key === "ArrowDown" ? 1 : -1);
+      byId("trace-rows").querySelector(`[data-cycle="${selectedTraceCycle}"]`)?.focus();
+    }
+  });
+  byId("trace-prev").addEventListener("click", () => moveTraceSelection(-1));
+  byId("trace-next").addEventListener("click", () => moveTraceSelection(1));
   const savedFontSize = localStorage.getItem(FONT_SIZE_KEY);
   applyEditorFontSize(savedFontSize ? Number(savedFontSize) : 16);
 
@@ -1357,6 +1466,7 @@ function initMobileShellUi() {
 
 initEvents();
 bootstrapCpuPanelsFromState();
+loadTraceExamples();
 wireDraftPersistenceOnce();
 loadInitialState().then(() => {
   if (!localStorage.getItem(TUTORIAL_SEEN_KEY)) {

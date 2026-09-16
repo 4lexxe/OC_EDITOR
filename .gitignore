@@ -44,3 +44,8 @@ dist/
 # Archivos temporales del sistema
 .DS_Store
 Thumbs.db
+.history/
+*/.history/
+tmp/
+*/tmp/
+VON_NEUMAN_EDITOR_MATERIAL/

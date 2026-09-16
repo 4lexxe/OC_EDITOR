@@ -53,6 +53,8 @@ def t_newline(t):
     t.lexer.lineno += len(t.value)
 
 def t_error(t):
+    if getattr(t.lexer, "estricto", False):
+        raise ValueError(f"Carácter no válido: {t.value[0]!r}")
     print(f"  [Léxico] Línea {t.lexer.lineno}: carácter ilegal '{t.value[0]}'")
     t.lexer.skip(1)
 

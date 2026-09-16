@@ -40,6 +40,9 @@ from modelo import Inferidor
 from modelo.explicacion_microops import texto_explicacion_codigo
 from modelo.Generador import generar, ErrorGeneracion
 from modelo.traza import simular_traza
+from modelo.ciclos import ejecutar_ciclo
+from modelo.ejemplos_traza import EJEMPLOS_TRAZA
+from compilador.AnalizadorSintactico import parsear_ciclo
 from compilador.AnalizadorSintactico import parser, preprocesar_linea_microop  # IMPORTANTE (arriba del archivo)
 from config import PreferencesManager
 
@@ -56,7 +59,7 @@ def _bin_a_hex_ui(s: str, bits: int) -> str:
     raw = raw.zfill(bits)[-bits:]
     try:
         v = int(raw, 2) & ((1 << bits) - 1)
-        return f"{v:03X}"
+        return format(v, f"0{(bits + 3) // 4}X")
     except ValueError:
         return "—"
 
@@ -260,7 +263,7 @@ class CPU_UI:
         ttk.Label(reg_frame, text="Hex", font=(ffam, fs)).grid(row=0, column=2, sticky="w", padx=(6, 0), pady=(0, 2))
 
         self.registers = {
-            "PC": tk.StringVar(value="000000000000"),
+            "PC": tk.StringVar(value="00000000"),
             "ACC": tk.StringVar(value="000000000000"),
             "GPR": tk.StringVar(value="000000000000"),
             "F": tk.StringVar(value="0"),
@@ -271,7 +274,7 @@ class CPU_UI:
         self._register_bin_entries = {}
 
         for i, (name, var) in enumerate(self.registers.items(), start=1):
-            bits = 1 if name == "F" else 12
+            bits = 1 if name == "F" else 8 if name == "PC" else 12
             ttk.Label(reg_frame, text=name, width=4).grid(row=i, column=0, sticky="w", pady=2)
             ent = ttk.Entry(reg_frame, textvariable=var, width=16, font=(ffam, self._scaled_size(9)))
             ent.grid(row=i, column=1, pady=2, sticky="w")
@@ -406,7 +409,7 @@ class CPU_UI:
         font_family = self.prefs.get("editor", "font_family")
         mono_size = self._scaled_size(8, min_size=7)
 
-        trace_frame = ttk.LabelFrame(self.main, text="Traza (tiempo real)", padding=4)
+        trace_frame = ttk.LabelFrame(self.main, text="Tabla de traza · Arquitectura básica", padding=8)
         trace_frame.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(8, 0))
         trace_frame.rowconfigure(1, weight=1)
         trace_frame.columnconfigure(0, weight=1)
@@ -421,35 +424,35 @@ class CPU_UI:
 
         opts = ttk.Frame(trace_frame)
         opts.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
-        ttk.Label(opts, text="Vista:").pack(side="left", padx=(0, 4))
-        self.trace_modo_var = tk.StringVar(value="Fetch + editor (estilo apuntes)")
-        self._trace_modo_combo = ttk.Combobox(
-            opts,
-            textvariable=self.trace_modo_var,
-            state="readonly",
-            width=36,
-            values=(
-                "Solo editor (sin fetch)",
-                "Fetch + editor (estilo apuntes)",
-            ),
-        )
+        opts.columnconfigure(0, weight=1)
+        ejemplo_bar = ttk.Frame(opts)
+        ejemplo_bar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ejemplo_bar.columnconfigure(0, weight=1)
+        self.trace_ejemplo_var = tk.StringVar(value=EJEMPLOS_TRAZA[0]["titulo"])
+        ttk.Combobox(ejemplo_bar, textvariable=self.trace_ejemplo_var, state="readonly",
+                     values=[e["titulo"] for e in EJEMPLOS_TRAZA], width=38).grid(row=0, column=0, sticky="ew")
+        ttk.Button(ejemplo_bar, text="Cargar ejemplo", command=self.cargar_ejemplo_traza).grid(row=0, column=1, padx=(8, 0))
+        opciones = ttk.Frame(opts)
+        opciones.grid(row=1, column=0, sticky="ew")
+        self.trace_modo_var = tk.StringVar(value="Completar búsqueda si falta")
+        self._trace_modo_combo = ttk.Combobox(opciones, textvariable=self.trace_modo_var,
+            state="readonly", width=28, values=("Completar búsqueda si falta", "Solo mi código"))
         self._trace_modo_combo.pack(side="left", padx=(0, 8))
         self._trace_modo_combo.bind("<<ComboboxSelected>>", lambda e: self._programar_actualizar_traza())
-
+        ttk.Button(opciones, text="Copiar tabla", command=self.copiar_tabla_traza).pack(side="right")
+        checks = ttk.Frame(opts)
+        checks.grid(row=2, column=0, sticky="ew", pady=(7, 0))
         self.trace_mar_pc_dec_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            opts,
-            text="MAR y PC en decimal",
-            variable=self.trace_mar_pc_dec_var,
-            command=self._programar_actualizar_traza,
-        ).pack(side="left")
         self.trace_compact_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            opts,
-            text="Solo valores que cambian",
-            variable=self.trace_compact_var,
-            command=self._programar_actualizar_traza,
-        ).pack(side="left", padx=(8, 0))
+        self.trace_inicial_var = tk.BooleanVar(value=True)
+        for titulo, variable in (("Solo cambios", self.trace_compact_var),
+                                 ("Estado inicial", self.trace_inicial_var),
+                                 ("PC / MAR decimal", self.trace_mar_pc_dec_var)):
+            ttk.Checkbutton(checks, text=titulo, variable=variable,
+                            command=self._programar_actualizar_traza).pack(side="left", padx=(0, 9))
+        self.trace_fuente_var = tk.StringVar(value="PC/MAR: 8 bits · GPR/ACC/M: 12 bits · OPR: 4 bits · F: 1 bit")
+        ttk.Label(opts, textvariable=self.trace_fuente_var, wraplength=540,
+                  font=(font_family, self._scaled_size(8))).grid(row=3, column=0, sticky="w", pady=(6, 0))
 
         cols = (
             "ciclo",
@@ -479,12 +482,12 @@ class CPU_UI:
         }
         widths = {
             "ciclo": 44,
-            "micro": 168,
+            "micro": 260,
             "PC": 40,
             "MAR": 44,
             "GPR": 44,
-            "GPR_OP": 52,
-            "GPR_AD": 52,
+            "GPR_OP": 75,
+            "GPR_AD": 75,
             "OPR": 44,
             "ACC": 44,
             "F": 28,
@@ -497,8 +500,10 @@ class CPU_UI:
             show="headings",
             height=22,
             selectmode="browse",
+            style="Trace.Treeview",
         )
         self._trace_tree.grid(row=0, column=0, sticky="nsew")
+        self._trace_tree.bind("<<TreeviewSelect>>", self.mostrar_detalle_ciclo)
         self._trace_tree.column("#0", width=0, stretch=False)
 
         for c in cols:
@@ -519,12 +524,18 @@ class CPU_UI:
         except tk.TclError:
             pass
 
-        mem_lf = ttk.LabelFrame(tab_tabla, text="Memoria usada en la traza", padding=4)
-        mem_lf.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self._trace_rows = []
+        self.trace_detalle_var = tk.StringVar(value="Seleccioná un ciclo para consultar todos sus valores.")
+        detalle = ttk.Label(tab_tabla, textvariable=self.trace_detalle_var, justify="left",
+                            wraplength=600, padding=8, font=(font_family, self._scaled_size(9)))
+        detalle.grid(row=2, column=0, columnspan=2, sticky="ew")
+        tab_tabla.bind("<Configure>", lambda event: detalle.configure(wraplength=max(180, event.width - 25)))
+        mem_lf = ttk.LabelFrame(tab_tabla, text="Lecturas y escrituras de RAM", padding=4)
+        mem_lf.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         mem_lf.columnconfigure(0, weight=1)
         self._trace_mem_text = scrolledtext.ScrolledText(
             mem_lf,
-            height=8,
+            height=5,
             width=36,
             wrap="word",
             font=(font_family, mono_size),
@@ -736,13 +747,16 @@ class CPU_UI:
         ops = self._ops_desde_editor()
         if not ops:
             self.instruccion_var.set("Sin instrucciones para inferir")
+            self.inferencia_notas_var.set("")
             if notificar_barra:
                 self.mostrar_estado("Sin instrucciones para inferir.", error=False)
             return
 
-        resultado = Inferidor.inferir(ops)
+        detalle = Inferidor.inferir_detallado(ops)
+        resultado = detalle["instruccion"]
         modo = Inferidor.clasificar_modo_direccionamiento(ops)
         self.instruccion_var.set(f"Instruccion: {resultado}  |  Modo: {modo}")
+        self.inferencia_notas_var.set("\n".join(detalle["notas"]))
         if notificar_barra:
             self.mostrar_estado(f"Inferencia completada ({len(ops)} operaciones)", error=False)
 
@@ -754,7 +768,7 @@ class CPU_UI:
         self.cargar_memoria_desde_ui()
         texto = self.code.get("1.0", "end")
         modo = self.trace_modo_var.get()
-        prefijo_fetch = modo.startswith("Fetch")
+        prefijo_fetch = modo.startswith(("Completar", "Fetch"))
         mar_dec = self.trace_mar_pc_dec_var.get()
         if self._trace_last_pc_mar_dec != mar_dec:
             self._trace_last_pc_mar_dec = mar_dec
@@ -768,18 +782,22 @@ class CPU_UI:
             prefijo_fetch=prefijo_fetch,
             mar_pc_decimal=mar_dec,
             omitir_repetidos=self.trace_compact_var.get(),
+            estado_inicial=self.trace_inicial_var.get(),
         )
         if getattr(self, "_trace_mem_text", None) is not None:
             self._trace_mem_text.configure(state="normal")
             self._trace_mem_text.delete("1.0", "end")
             self._trace_mem_text.insert("1.0", mem_info)
             self._trace_mem_text.configure(state="disabled")
+        self._trace_rows = filas
         for item in self._trace_tree.get_children():
             self._trace_tree.delete(item)
         for f in filas:
             self._trace_tree.insert(
                 "",
                 "end",
+                iid=str(f["ciclo"]),
+                tags=("inicial" if f["ciclo"] == 0 else "busqueda" if f["fase"] == "Búsqueda" else "par" if f["ciclo"] % 2 == 0 else "impar",),
                 values=(
                     f["ciclo"],
                     f["micro"],
@@ -794,6 +812,11 @@ class CPU_UI:
                     f["M"],
                 ),
             )
+        if filas:
+            self._trace_tree.selection_set(str(filas[0]["ciclo"]))
+            self.mostrar_detalle_ciclo()
+        else:
+            self.trace_detalle_var.set("Sin ciclos para mostrar.")
         if err:
             self.trace_status_var.set(err)
         elif not filas:
@@ -803,7 +826,7 @@ class CPU_UI:
             dec_txt = " · MAR/PC decimal" if mar_dec else ""
             comp_txt = " · celdas compactas" if self.trace_compact_var.get() else " · tabla completa"
             self.trace_status_var.set(
-                f"{len(filas)} μops · {modo_txt}{dec_txt}{comp_txt} · resto hex 12 bits"
+                f"{sum(f['ciclo'] > 0 for f in filas)} ciclos · {modo_txt}{dec_txt}{comp_txt}"
             )
 
         if getattr(self, "_trace_explicacion_text", None) is not None:
@@ -811,6 +834,50 @@ class CPU_UI:
             self._trace_explicacion_text.delete("1.0", "end")
             self._trace_explicacion_text.insert("1.0", texto_explicacion_codigo(texto))
             self._trace_explicacion_text.configure(state="disabled")
+
+    def cargar_ejemplo_traza(self):
+        ejemplo = next(e for e in EJEMPLOS_TRAZA if e["titulo"] == self.trace_ejemplo_var.get())
+        self.cpu = VonNeuman()
+        self.pc = 0
+        for nombre, valor in ejemplo["registros"].items():
+            bits = 1 if nombre == "F" else 8 if nombre == "PC" else 12
+            setattr(self.cpu, nombre, BitArray(uint=valor, length=bits))
+        for direccion, valor in ejemplo["memoria"].items():
+            self.cpu.RAM.escribir(direccion, valor)
+        self.actualizar_registros_ui()
+        for i, valor in enumerate(self.cpu.RAM.dump()):
+            self.mem_vars_edit[i].set(valor)
+        self.actualizar_memoria_ui()
+        self.code.delete("1.0", "end")
+        self.code.insert("1.0", ejemplo["codigo"])
+        self.trace_modo_var.set("Solo mi código")
+        self.trace_compact_var.set(True)
+        self.trace_inicial_var.set(True)
+        self.trace_mar_pc_dec_var.set(False)
+        self.trace_fuente_var.set(ejemplo["fuente"])
+        self.actualizar_traza_vista()
+        self.mostrar_estado("Ejemplo cargado: " + ejemplo["titulo"])
+
+    def mostrar_detalle_ciclo(self, event=None):
+        seleccion = self._trace_tree.selection()
+        if not seleccion:
+            return
+        fila = next((f for f in self._trace_rows if str(f["ciclo"]) == seleccion[0]), None)
+        if fila is None:
+            return
+        valores = " · ".join(f"{k.replace('_', '(') + ')' if '_' in k else k}={v}"
+                             for k, v in fila["valores"].items())
+        self.trace_detalle_var.set(f"Ciclo {fila['ciclo']} · {fila['fase']} · {fila['micro']}\n{valores}")
+
+    def copiar_tabla_traza(self):
+        if not getattr(self, "_trace_rows", None):
+            self.mostrar_estado("No hay ciclos para copiar.", error=True)
+            return
+        columnas = ("ciclo", "micro", "PC", "MAR", "GPR", "GPR_OP", "GPR_AD", "OPR", "ACC", "F", "M")
+        lineas = ["\t".join(columnas)] + ["\t".join(str(f[k]) for k in columnas) for f in self._trace_rows]
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(lineas))
+        self.mostrar_estado("Tabla copiada para pegar en una planilla.")
 
     def _on_code_modified(self, event=None):
         if self.code.edit_modified():
@@ -1021,9 +1088,18 @@ class CPU_UI:
         self._status_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=4)
 
         self.instruccion_var = tk.StringVar(value="")
-        self._instruccion_label = ttk.Label(bottom, textvariable=self.instruccion_var, anchor="w",
+        infer_frame = ttk.Frame(bottom)
+        infer_frame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=4, pady=(2, 4))
+        infer_frame.columnconfigure(0, weight=1)
+        self._instruccion_label = ttk.Label(infer_frame, textvariable=self.instruccion_var, anchor="w",
                     font=(font_family, self._scaled_size(12), "bold"), foreground="blue")
-        self._instruccion_label.grid(row=3, column=0, columnspan=2, sticky="ew", padx=4, pady=(2, 4))
+        self._instruccion_label.grid(row=0, column=0, sticky="ew")
+        self.inferencia_notas_var = tk.StringVar(value="")
+        notas_label = ttk.Label(infer_frame, textvariable=self.inferencia_notas_var,
+                               anchor="w", justify="left")
+        notas_label.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        infer_frame.bind("<Configure>", lambda event: notas_label.configure(
+            wraplength=max(100, event.width - 8)))
 
         # ── Panel generador: instrucción → microoperaciones ──────────
         gen_frame = ttk.LabelFrame(bottom, text="Generar microoperaciones", padding=6)
@@ -1178,9 +1254,9 @@ class CPU_UI:
 
     def cargar_registros_desde_ui(self):
         try:
-            self.cpu.PC = self._bitarray_desde_campo_bin(self.registers["PC"].get(), 12)
+            self.cpu.PC = self._bitarray_desde_campo_bin(self.registers["PC"].get(), 8)
         except (ValueError, TypeError):
-            self.cpu.PC = BitArray(uint=0, length=12)
+            self.cpu.PC = BitArray(uint=0, length=8)
         try:
             self.cpu.ACC = self._bitarray_desde_campo_bin(self.registers["ACC"].get(), 12)
         except (ValueError, TypeError):
@@ -1202,7 +1278,7 @@ class CPU_UI:
         self._suppress_reg_trace = True
         try:
             self.registers["PC"].set(self.cpu.PC.bin)
-            self.register_hex_vars["PC"].set(f"{self.cpu.PC.uint & 0xFFF:03X}")
+            self.register_hex_vars["PC"].set(f"{self.cpu.PC.uint & 0xFF:02X}")
             self.registers["ACC"].set(self.cpu.ACC.bin)
             self.register_hex_vars["ACC"].set(f"{self.cpu.ACC.uint & 0xFFF:03X}")
             self.registers["GPR"].set(self.cpu.GPR.bin)
@@ -1241,43 +1317,12 @@ class CPU_UI:
             self.pc += 1
             return
 
-        instr = parser.parse(linea)
-
-        ops_linea = [t[0] for t in instr if t is not None and t[0] is not None]
-        if not ops_linea:
-            self.mostrar_estado(f"Línea {self.pc + 1}: error de sintaxis en '{linea}'", error=True)
-            self.pc += 1
+        try:
+            ops_linea = parsear_ciclo(linea)
+            ejecutar_ciclo(self.cpu, ops_linea)
+        except (ValueError, IndexError, TypeError) as exc:
+            self.mostrar_estado(f"Línea {self.pc + 1}: {exc}", error=True)
             return
-
-        dispatch = {
-            "INC_ACC":      self.cpu.INC_ACC,
-            "INC_GPR":      self.cpu.INC_GPR,
-            "NOT_ACC":      self.cpu.NOT_ACC,
-            "NOT_F":        self.cpu.NOT_F,
-            "ROL_F_ACC":    self.cpu.ROL_F_ACC,
-            "ROR_F_ACC":    self.cpu.ROR_F_ACC,
-            "SUM_ACC_GPR":  self.cpu.SUM_ACC_GPR,
-            "ACC_TO_GPR":   self.cpu.ACC_TO_GPR,
-            "GPR_TO_ACC":   self.cpu.GPR_TO_ACC,
-            "ZERO_ACC":     self.cpu.ZERO_TO_ACC,
-            "ZERO_F":       self.cpu.ZERO_TO_F,
-            "GPR_AD_TO_MAR":self.cpu.GPR_AD_TO_MAR,
-            "GPR_TO_M":     self.cpu.GPR_TO_M,
-            "M_TO_GPR":     self.cpu.M_TO_GPR,
-            "PC_TO_MAR":    self.cpu.PC_TO_MAR,
-            "INC_PC":       self.cpu.INC_PC,
-            "GPR_OP_TO_OPR":self.cpu.GPR_OP_TO_OPR,
-        }
-
-        for op in ops_linea:
-            if op in dispatch:
-                dispatch[op]()
-            else:
-                self.mostrar_estado(f"Línea {self.pc + 1}: instrucción no soportada '{op}'", error=True)
-                self.pc += 1
-                self.actualizar_registros_ui()
-                self.actualizar_memoria_ui()
-                return
         self.mostrar_estado(
             f"Línea {self.pc + 1}: {linea}  →  {' · '.join(ops_linea)}",
             error=False,
@@ -1471,6 +1516,15 @@ class CPU_UI:
         )
         style.configure("Treeview.Heading", background=colors["panel_bg"], foreground=colors["editor_fg"])
         style.map("Treeview", background=[("selected", colors["select_bg"])])
+        style.configure("Trace.Treeview", rowheight=self._scaled_size(30),
+                        font=(self.prefs.get("editor", "font_family"), self._scaled_size(9)))
+        style.configure("Trace.Treeview.Heading", padding=(7, 9),
+                        font=(self.prefs.get("editor", "font_family"), self._scaled_size(9), "bold"))
+        if self._trace_tree is not None:
+            self._trace_tree.tag_configure("inicial", background=colors["panel_bg"], foreground=colors["text_muted"])
+            self._trace_tree.tag_configure("busqueda", background=colors["panel_bg"], foreground=colors["accent"])
+            self._trace_tree.tag_configure("par", background=colors["panel_bg"])
+            self._trace_tree.tag_configure("impar", background=colors["editor_bg"])
 
     def _aplicar_tema_menus(self):
         colors = self._theme_colors

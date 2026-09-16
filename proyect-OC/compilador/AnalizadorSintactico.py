@@ -1,5 +1,10 @@
 import ply.yacc as yacc
+from contextvars import ContextVar
+from threading import RLock
 from compilador.AnalizadorLexico import tokens
+
+_estricto = ContextVar("microop_estricto", default=False)
+_parser_lock = RLock()
 
 def p_acciones(p):
     '''acciones : acciones accion
@@ -108,6 +113,8 @@ def p_accion(p):
 
 
 def p_error(p):
+    if _estricto.get():
+        raise ValueError(f"Sintaxis inválida cerca de {p.value!r}" if p else "Microoperación incompleta")
     if p:
         print(f"  [Sintaxis] Línea {p.lineno}: token inesperado '{p.value}' (tipo: {p.type})")
         print(f"  Instrucciones válidas:")
@@ -150,4 +157,25 @@ def preprocesar_linea_microop(linea: str) -> str:
             corte = min(corte, idx)
     if corte < len(linea):
         linea = linea[:corte].strip()
-    return linea
+    return linea.replace("→", "->").replace("←", "<-")
+
+
+def parsear_ciclo(linea: str) -> list[str]:
+    """No ignora caracteres o fragmentos inválidos al construir una traza."""
+    from compilador.AnalizadorLexico import lexer
+
+    linea = preprocesar_linea_microop(linea)
+    if not linea:
+        return []
+    with _parser_lock:
+        token = _estricto.set(True)
+        try:
+            local_lexer = lexer.clone()
+            local_lexer.estricto = True
+            local_lexer.lineno = 1
+            resultado = parser.parse(linea, lexer=local_lexer)
+            if not resultado or any(not op for op in resultado):
+                raise ValueError("Microoperación no reconocida")
+            return [op[0] for op in resultado]
+        finally:
+            _estricto.reset(token)

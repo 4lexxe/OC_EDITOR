@@ -9,29 +9,13 @@ from __future__ import annotations
 
 import re
 
-from sympy import symbols, simplify, factor, Not, Symbol, collect, expand, sympify
-from sympy import Rational, Integer, floor, Mod
-from sympy.printing import sstr
+from sympy import symbols, simplify, expand, sympify, Integer, floor, Mod
+from modelo.formato_apuntes import FormatoApuntes, normalizar_divisiones
 
 
 # Símbolos iniciales para cada registro
 ACC0, GPR0, M0, F0 = symbols("ACC GPR M F", integer=True)
 # F0 es variable simbólica (valor desconocido al inicio)
-
-# Plantilla emitida por Generador._acc_en_div4_menos_f (ver ACC/4 - F).
-_PLANTILLA_DIV4_MENOS_F_NUCLEO = (
-    "ZERO_F",
-    "ROR_F_ACC",
-    "ZERO_F",
-    "ROR_F_ACC",
-    "ACC_TO_GPR",
-    "ZERO_ACC",
-    "ROL_F_ACC",
-    "NOT_ACC",
-    "INC_ACC",
-    "SUM_ACC_GPR",
-)
-_PLANTILLA_DIV4_MENOS_F_M = _PLANTILLA_DIV4_MENOS_F_NUCLEO + ("ACC_TO_GPR", "GPR_TO_M")
 
 # Prefijo fetch atómico (misma convención que Generador.FETCH_CICLO_INSTRUCCION).
 _FETCH_ATOMICA = ("PC_TO_MAR", "M_TO_GPR", "INC_PC", "GPR_OP_TO_OPR")
@@ -116,24 +100,6 @@ def clasificar_modo_direccionamiento(ops: list) -> str:
     return "Indirecto"
 
 
-def _infer_si_div4_menos_f(ops: list) -> str | None:
-    """
-    La simulación simbólica pierde F tras ROR (F pasa a 0). Esta secuencia
-    implementa igualmente ACC/4 - F; la reconocemos por patrón (Generador).
-    """
-    if len(ops) >= len(_PLANTILLA_DIV4_MENOS_F_M) and tuple(
-        ops[-len(_PLANTILLA_DIV4_MENOS_F_M) :]
-    ) == _PLANTILLA_DIV4_MENOS_F_M:
-        return "M <- ACC/4 - F"
-    if len(ops) >= len(_PLANTILLA_DIV4_MENOS_F_NUCLEO) and tuple(
-        ops[-len(_PLANTILLA_DIV4_MENOS_F_NUCLEO) :]
-    ) == _PLANTILLA_DIV4_MENOS_F_NUCLEO:
-        return "ACC <- ACC/4 - F"
-    return None
-
-
-# Mitad en entero + corrección ±4·F_bit (F_bit = LSB del ACC tras ROR con F=0 antes).
-# La simulación simbólica colapsa ese término; se reconoce por patrón (implicado).
 def _normalizar_texto_expr_apuntes_para_sym(expr_txt: str) -> str:
     """
     En apuntes «ACC/n» (n potencia de 2) es división entera; para SymPy usamos floor(ACC/n).
@@ -142,8 +108,8 @@ def _normalizar_texto_expr_apuntes_para_sym(expr_txt: str) -> str:
     t = expr_txt.strip()
     for n in (4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2):
         t = re.sub(
-            rf"(?<![A-Za-z0-9_*])ACC\s*/\s*{n}(?![A-Za-z0-9_*])",
-            rf"(floor(ACC/{n}))",
+            rf"(?<![A-Za-z0-9_*])(ACC|GPR|M)\s*/\s*{n}(?![A-Za-z0-9_*])",
+            rf"(floor(\1/{n}))",
             t,
             flags=re.IGNORECASE,
         )
@@ -168,127 +134,24 @@ def _equiv_en_dominio_acc_12_bits(expr_obj, expr_inf) -> bool:
     return True
 
 
-def _limpiar_formato_simbolico(s: str) -> str:
-    import re
-
-    s = re.sub(r'(\d)\*([A-Z]+)', r'\1\2', s)  # 3*M -> 3M
-    s = re.sub(r'(?<!\d)-1([A-Z])', r'-\1', s)  # -1ACC -> -ACC
-    s = re.sub(r'([A-Z]+)/2', r'\1/2', s)
-    return s
-
-
-def _str_suma_orden_apuntes(expr) -> str:
-    """
-    Convierte una suma en texto con términos ordenados legibles:
-    si aparece M → M, F, ACC, GPR; si no pero aparece ACC → ACC, GPR, M, F.
-    """
-    e = expand(simplify(expr))
-    if not e.is_Add:
-        return _limpiar_formato_simbolico(sstr(e))
-    u = e.free_symbols
-    if M0 in u:
-        order = (M0, F0, ACC0, GPR0)
-    elif ACC0 in u:
-        order = (ACC0, GPR0, M0, F0)
-    else:
-        order = (M0, F0, ACC0, GPR0)
-    prio = {sym: i for i, sym in enumerate(order)}
-
-    def term_priority(t):
-        for s in order:
-            if t.has(s):
-                return prio[s]
-        return 99
-
-    terms = sorted(e.args, key=lambda t: (term_priority(t), sstr(t)))
-    first = sstr(terms[0])
-    rest: list[str] = []
-    for t in terms[1:]:
-        st = sstr(t)
-        if st.startswith("-"):
-            rest.append(" - " + st[1:].lstrip())
-        else:
-            rest.append(" + " + st)
-    return _limpiar_formato_simbolico(first + "".join(rest))
+def _presentar_resultado(resultado) -> dict:
+    if isinstance(resultado, str):
+        return {"instruccion": resultado, "notas": []}
+    formato = FormatoApuntes([expr for _, expr in resultado])
+    return {
+        "instruccion": "  |  ".join(formato.instruccion(dest, expr) for dest, expr in resultado),
+        "notas": formato.notas(),
+    }
 
 
-def _expr_string_canonica(expr) -> str:
-    """String legible tipo apuntes."""
-    for sym, label in ((M0, "M"), (GPR0, "GPR")):
-        t = _texto_apuntes_div_entera_pot2_y_const(expr, sym, label)
-        if t is not None:
-            return _limpiar_formato_simbolico(t)
-    e = expand(simplify(expr))
-    if e.is_Add:
-        return _str_suma_orden_apuntes(e)
-    for sym in (M0, F0, ACC0, GPR0):
-        if sym in e.free_symbols:
-            e = collect(e, sym)
-    return _limpiar_formato_simbolico(sstr(e))
+def inferir_detallado(ops: list) -> dict:
+    """Instrucción en notación de apuntes y aclaraciones para web y escritorio."""
+    return _presentar_resultado(_inferir_expresiones(ops))
 
 
-def _equivalente_reorden_apuntes(s: str) -> str:
-    """Reescribe '-ACC + …' como '… - ACC' cuando sea el mismo polinomio en apuntes."""
-    if s.startswith("-ACC + "):
-        return s[len("-ACC + ") :].strip() + " - ACC"
-    return s
-
-
-def _denominador_pot2_si_expr_es_floor_div_en_12bits(expr, sym) -> int | None:
-    """
-    Devuelve n (potencia de 2) si expr coincide con floor(sym/n) para ACC/M/GPR en 0..4095.
-    """
-    if expr.free_symbols != {sym}:
-        return None
-    for k in range(1, 13):
-        n = 2**k
-        templ = floor(sym / Integer(n))
-        for v in range(4096):
-            if (expr - templ).subs(sym, Integer(v)) != 0:
-                break
-        else:
-            return n
-    return None
-
-
-def _texto_apuntes_div_entera_pot2_y_const(expr, sym, etiqueta: str) -> str | None:
-    """
-    Formato apuntes: «ACC/n», «M/n», o «m*(ACC/n)» si expr es m*floor(sym/n) con m entero > 0
-    y n potencia de 2 (p. ej. 2*floor(floor(ACC/4)/2) → 2*(ACC/8)).
-    """
-    if expr.free_symbols != {sym}:
-        return None
-    c, body = expr.as_coeff_Mul()
-    if getattr(c, "is_Integer", False) and c > 0:
-        n = _denominador_pot2_si_expr_es_floor_div_en_12bits(body, sym)
-        if n is not None:
-            m = int(c)
-            if m == 1:
-                return f"{etiqueta}/{n}"
-            return f"{m}*({etiqueta}/{n})"
-    return None
-
-
-def _expr_string_apuntes_acc(expr) -> str:
-    """Texto tipo apuntes para resultado en ACC: Mod(ACC,2)→F; divisiones /2^k como ACC/2^k."""
-    e = expand(simplify(expr.subs(Mod(ACC0, 2), F0)))
-    solo = _texto_apuntes_div_entera_pot2_y_const(e, ACC0, "ACC")
-    if solo is not None:
-        return _limpiar_formato_simbolico(solo)
-    s = _expr_string_canonica(e)
-    s = re.sub(r"(?<!\*)floor\(ACC\s*/\s*2\)", "ACC/2", s, flags=re.IGNORECASE)
-    return _limpiar_formato_simbolico(s)
-
-
-def _fmt_instruccion(destino_arrow: str, expr) -> str:
-    """Una sola línea legible: prioriza el reorden tipo apuntes si mejora la lectura."""
-    if destino_arrow.strip().upper() == "ACC":
-        can = _expr_string_apuntes_acc(expr)
-    else:
-        can = _expr_string_canonica(expr)
-    equiv = _equivalente_reorden_apuntes(can)
-    texto = equiv if equiv != can else can
-    return f"{destino_arrow} <- {texto}"
+def inferir(ops: list) -> str:
+    """Interfaz compatible: devuelve únicamente la instrucción legible."""
+    return inferir_detallado(ops)["instruccion"]
 
 
 def _not12(expr):
@@ -317,26 +180,6 @@ def _parsear_instruccion_objetivo(instruccion: str):
     return destino, expr
 
 
-def _extraer_expr_inferida(resultado_inferido: str, destino: str):
-    partes = [p.strip() for p in resultado_inferido.split("|")]
-    pref = f"{destino} <-"
-    for p in partes:
-        if not p.startswith(pref):
-            continue
-        rhs = p[len(pref):].strip()
-        if rhs.startswith("canónica:"):
-            rhs = rhs[len("canónica:"):].strip()
-            if "  equivalente:" in rhs:
-                rhs = rhs.split("  equivalente:", 1)[0].strip()
-        rhs = re.sub(r"(\d)(ACC|GPR|M\b|F\b)", r"\1*\2", rhs)
-        rhs = _normalizar_texto_expr_apuntes_para_sym(rhs)
-        try:
-            return expand(sympify(rhs, locals=_SYMPY_LOCALS))
-        except Exception:
-            return None
-    return None
-
-
 def verificar_equivalencia(instruccion: str, microops_texto: list[str]) -> tuple[bool, str]:
     """
     Verifica por equivalencia algebraica si una secuencia de microops implementa la instrucción.
@@ -359,22 +202,32 @@ def verificar_equivalencia(instruccion: str, microops_texto: list[str]) -> tuple
         else:
             ops_internas.append(cod)
 
-    resultado = inferir(ops_internas)
-    expr_inf = _extraer_expr_inferida(resultado, destino)
+    expresiones = _inferir_expresiones(ops_internas)
+    resultado = _presentar_resultado(expresiones)["instruccion"]
+    expr_inf = None if isinstance(expresiones, str) else dict(expresiones).get(destino)
     if expr_inf is None:
         return False, f"No se pudo inferir expresión para {destino}. Inferido: {resultado}"
 
-    if expand(expr_obj - expr_inf) == 0:
+    # Comparamos árboles simbólicos, nunca volvemos a interpretar texto de la UI.
+    # En la convención de apuntes, F puede nombrar el bit extraído por ROR.
+    expr_inf = normalizar_divisiones(expr_inf)
+    expr_obj = normalizar_divisiones(expr_obj)
+    formato = FormatoApuntes([expr_inf])
+    for bit, alias in formato.aliases.items():
+        if alias == F0:
+            expr_obj = expr_obj.subs(F0, bit)
+    if simplify(expr_obj - expr_inf) == 0:
         return True, resultado
     if _equiv_en_dominio_acc_12_bits(expr_obj, expr_inf):
         return True, resultado
-    return False, f"Objetivo: {destino} <- {_expr_string_canonica(expr_obj)} | Inferido: {resultado}"
+    objetivo = FormatoApuntes([expr_obj]).instruccion(destino, expr_obj)
+    return False, f"Objetivo: {objetivo} | Inferido: {resultado}"
 
 
-def inferir(ops: list) -> str:
+def _inferir_expresiones(ops: list):
     """
-    Simula simbólicamente la secuencia de ops y devuelve la instrucción
-    de alto nivel que implementan (ej: 'M <- 3M - ACC').
+    Devuelve pares (registro, expresión exacta), o un mensaje si no hay efectos.
+    La presentación se aplica después, sin alterar el cálculo simbólico.
     """
     if not ops:
         return "Sin instrucciones"
@@ -388,10 +241,6 @@ def inferir(ops: list) -> str:
 
     if not ops:
         return "Ciclo fetch / decodificación"
-
-    div4f = _infer_si_div4_menos_f(ops)
-    if div4f:
-        return div4f
 
     # ── Detectar si F se usa sin haber sido inicializado en 0 ────────
     # Ignorar ops de setup (carga de memoria, fetch) al buscar el primer uso de F
@@ -535,22 +384,22 @@ def inferir(ops: list) -> str:
     # Si M cambió y su valor NO depende solo de GPR/ACC sin cambio real → mostrar M
     # Prioridad: M > ACC > GPR
     # Pero si M solo cambió por un GPR_TO_M al final, el resultado real es ACC
-    lineas: list[str] = []
+    lineas: list[tuple] = []
     ultimo_op = ops[-1] if ops else ""
 
     if "M" in cambios and ultimo_op in ("GPR_TO_M", "M_TO_GPR"):
-        lineas.append(_fmt_instruccion("M", cambios["M"]))
+        lineas.append(("M", cambios["M"]))
         # Si ACC también cambió, mostrar ambos efectos para no ocultar información.
         if "ACC" in cambios:
-            lineas.append(_fmt_instruccion("ACC", cambios["ACC"]))
+            lineas.append(("ACC", cambios["ACC"]))
     elif "ACC" in cambios:
-        lineas.append(_fmt_instruccion("ACC", cambios["ACC"]))
+        lineas.append(("ACC", cambios["ACC"]))
         if "M" in cambios and ultimo_op == "GPR_TO_M":
-            lineas.append(_fmt_instruccion("M", cambios["M"]))
+            lineas.append(("M", cambios["M"]))
     elif "M" in cambios:
-        lineas.append(_fmt_instruccion("M", cambios["M"]))
+        lineas.append(("M", cambios["M"]))
 
     if not lineas:
-        lineas = [_fmt_instruccion(r, v) for r, v in cambios.items()]
+        lineas = list(cambios.items())
 
-    return "  |  ".join(lineas)
+    return lineas

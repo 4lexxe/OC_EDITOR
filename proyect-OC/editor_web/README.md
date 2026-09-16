@@ -88,3 +88,21 @@ El panel `/_internal/access-control` muestra la ruta de datos activa y un aviso 
 
 - Mantiene paneles equivalentes al editor de escritorio: registros, RAM editable, editor, traza y resultados.
 - La calculadora web existente no se modifica.
+
+## Fórmulas legibles
+
+La web y el editor de escritorio comparten `modelo/formato_apuntes.py`.
+Las divisiones enteras se muestran como `ACC/4` y los bits extraídos por
+rotaciones como `F`, con una aclaración debajo de la instrucción. Si hay
+varios bits diferentes, se distinguen como `F1`, `F2`, etc. Los cálculos y
+la verificación conservan las expresiones simbólicas originales.
+
+Ejemplo: dos ROR con F en cero, negación, guardado en GPR, dos ROL sobre
+ACC en cero, suma de GPR e incremento producen `ACC <- -ACC/4 + 2F + 1`.
+Aquí F es el segundo bit del ACC inicial, contando desde la derecha.
+
+Pruebas desde la raíz del proyecto:
+
+```bash
+python -B -m unittest discover -s tests -v
+```

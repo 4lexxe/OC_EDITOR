@@ -15,7 +15,7 @@ class Memoria:
         Devuelve el contenido de la dirección de memoria.
         """
         if 0 <= direccion < self.size:
-            return self.ram[direccion]
+            return self.ram[direccion].copy()
         else:
             raise IndexError("Dirección de memoria fuera de rango")
 
@@ -41,14 +41,14 @@ class VonNeuman:
     def __init__(self):
         # Registros públicos (usar directamente cpu.ACC, cpu.F, ...)
         self.ACC = BitArray(uint=0, length=12)   # Acumulador (12 bits)
-        self.F   = BitArray(uint=0, length=1)    # Flag de overflow (1 bit)
+        self.F   = BitArray(uint=0, length=1)    # Flip-flop de rotación (Taub, cap. 9)
         self.GPR = BitArray(uint=0, length=12)   # Registro general (12 bits)
         self.M   = BitArray(uint=0, length=12)   # Registro de memoria (12 bits)
-        self.MAR = BitArray(uint=0, length=12)   # Memory Address Register
-        self.PC  = BitArray(uint=0, length=12)   # Program Counter
-        self.OPR = BitArray(uint=0, length=12)   # registro de operación (apuntes / traza)
-        self.GPR_AD = BitArray(uint=0, length=12)  # campo dirección (visualización)
-        self.GPR_OP = BitArray(uint=0, length=12)  # campo operando (visualización)
+        self.MAR = BitArray(uint=0, length=8)   # Memory Address Register
+        self.PC  = BitArray(uint=0, length=8)   # Program Counter
+        self.OPR = BitArray(uint=0, length=4)   # registro de operación (apuntes / traza)
+        self.GPR_AD = BitArray(uint=0, length=8)  # campo dirección (visualización)
+        self.GPR_OP = BitArray(uint=0, length=4)  # campo operando (visualización)
         self.RAM = Memoria()                     # RAM: instancia de Memoria (array de BitArray)
 
     # Nota: quitadas las funciones get_/set_. Usar los atributos públicos: ACC, F, GPR, M, RAM
@@ -59,8 +59,8 @@ class VonNeuman:
         w = self.GPR.uint & 0xFFF
         op_n = (w >> 8) & 0xF
         ad_n = w & 0xFF
-        self.GPR_OP = BitArray(uint=op_n, length=12)
-        self.GPR_AD = BitArray(uint=ad_n, length=12)
+        self.GPR_OP = BitArray(uint=op_n, length=4)
+        self.GPR_AD = BitArray(uint=ad_n, length=8)
 
     def ROL_F_ACC(self):
         concatenacion = self.F + self.ACC
@@ -98,11 +98,8 @@ class VonNeuman:
         self.ACC = self.GPR.copy()
     
     def SUM_ACC_GPR(self):
-        suma = self.ACC.copy().uint + self.GPR.copy().uint
-        if suma > 0xFFF:
-            self.F = BitArray(uint=1, length=1)  # overflow
-        else:
-            self.F = BitArray(uint=0, length=1)
+        # F solo cambia mediante rotaciones, borrado y complemento (Taub 9.1-1).
+        suma = self.ACC.uint + self.GPR.uint
         
         self.ACC = BitArray(uint=suma & 0xFFF, length=12)
 
@@ -115,11 +112,12 @@ class VonNeuman:
     def GPR_AD_TO_MAR(self):
         # Campo AD (8 bits bajos del IR / GPR) → MAR; lectura en M (Ejemplo 1 y ejercicios directos).
         ad = self.GPR.uint & 0xFF
-        self.MAR = BitArray(uint=ad, length=12)
+        self.MAR = BitArray(uint=ad, length=8)
         self._sync_ir_fields()
         self.M = self.RAM.leer(ad)
 
     def GPR_TO_M(self):
+        self.RAM.escribir(self.MAR.uint, self.GPR.uint)
         self.M = self.GPR.copy()
     
     def M_TO_GPR(self):
@@ -131,16 +129,16 @@ class VonNeuman:
 
     def PC_TO_MAR(self):
         # Solo captación de dirección y dato en M; GPR se carga en el siguiente paso (filmina Ej. 1).
-        self.MAR = self.PC.copy()
-        self.M = self.RAM.leer(self.PC.uint)
+        self.MAR = BitArray(uint=self.PC.uint & 0xFF, length=8)
+        self.M = self.RAM.leer(self.MAR.uint)
 
     def INC_PC(self):
-        val = (self.PC.uint + 1) & 0xFFF
-        self.PC = BitArray(uint=val, length=12)
+        val = (self.PC.uint + 1) & 0xFF
+        self.PC = BitArray(uint=val, length=8)
 
     def GPR_OP_TO_OPR(self):
         op_n = (self.GPR.uint >> 8) & 0xF
-        self.OPR = BitArray(uint=op_n, length=12)
+        self.OPR = BitArray(uint=op_n, length=4)
         self._sync_ir_fields()
     
 

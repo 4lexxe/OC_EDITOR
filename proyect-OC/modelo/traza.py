@@ -7,6 +7,8 @@ from __future__ import annotations
 from bitstring import BitArray
 
 from modelo.Von_Neumann import VonNeuman
+from modelo.ciclos import ejecutar_ciclo
+from compilador.AnalizadorSintactico import parsear_ciclo, preprocesar_linea_microop
 
 # Texto mostrado en la columna «Microoperación» (notación apuntes)
 _OP_TEXTO = {
@@ -67,7 +69,7 @@ def clonar_cpu(cpu: VonNeuman) -> VonNeuman:
 def _fmt_pc_mar(cpu: VonNeuman, mar_pc_decimal: bool, attr: str) -> str:
     ba = getattr(cpu, attr)
     v = ba.uint & 0xFFF
-    return str(v) if mar_pc_decimal else _fmt12(ba)
+    return str(v & 0xFF) if mar_pc_decimal else f"{v & 0xFF:02X}"
 
 
 def _fila_estado(
@@ -123,33 +125,19 @@ def compactar_filas_traza(filas: list[dict]) -> list[dict]:
 
 
 def _formatear_panel_memoria_traza(mem_log: list[dict], cpu: VonNeuman) -> str:
-    """Texto para la UI: lecturas detectadas y valores finales en esas direcciones."""
     if not mem_log:
-        return (
-            "Sin lecturas desde RAM en esta traza.\n\n"
-            "Aquí se registran los accesos que cargan el registro M desde la RAM:\n"
-            "  • PC -> MAR (fetch de instrucción)\n"
-            "  • GPR(AD) -> MAR (acceso a operando)\n\n"
-            "El modelo no escribe en RAM desde microoperaciones; lo que importa es lo "
-            "que cargaste en el panel «Memoria RAM» antes de simular."
-        )
-    lines = ["Lecturas desde memoria (dirección y palabra en hex, 12 bits):", ""]
-    for e in mem_log:
-        lines.append(f"  Ciclo {e['ciclo']}: lectura @{e['dir']:03X}  →  palabra {e['dato']:03X}")
-    dirs = sorted({e["dir"] for e in mem_log})
-    lines += ["", "Contenido actual de esas celdas al finalizar la traza:", ""]
-    for d in dirs:
-        v = cpu.RAM.leer(d).uint & 0xFFF
-        lines.append(f"  @{d:03X}  =  {v:03X}")
+        return "Sin accesos a RAM. M es la palabra de memoria seleccionada por MAR."
+    lines = ["Accesos a RAM · direcciones de 8 bits y palabras de 12 bits (hex)", ""]
+    for evento in mem_log:
+        accion = "Escritura" if evento["tipo"] == "escritura" else "Lectura"
+        lines.append(f"Ciclo {evento['ciclo']:>2} · {accion} · M[${evento['dir']:02X}] = ${evento['dato']:03X}")
+    lines += ["", "Memoria al finalizar la traza:"]
+    for direccion in sorted({evento["dir"] for evento in mem_log}):
+        lines.append(f"M[${direccion:02X}] = ${cpu.RAM.leer(direccion).uint:03X}")
     return "\n".join(lines)
 
 
-# Tres líneas de fetch como en Generador / filminas (al parsear, son 4 microops).
-_PREFIJO_FETCH = (
-    "PC -> MAR\n"
-    "M -> GPR, PC+1 -> PC\n"
-    "GPR(OP) -> OPR\n"
-)
+_PREFIJO_FETCH = ("PC -> MAR", "M -> GPR, PC+1 -> PC", "GPR(OP) -> OPR")
 
 
 def simular_traza(
@@ -161,103 +149,66 @@ def simular_traza(
     omitir_repetidos: bool = False,
     estado_inicial: bool = False,
 ) -> tuple[list[dict], str | None, str]:
+    """Una fila por ciclo de reloj (línea), con todas sus microoperaciones.
+
+    El ciclo de búsqueda tiene tres filas. Solo se agrega si se solicita y
+    el código todavía no comienza con PC->MAR. La CPU recibida no se modifica.
+    Cada fila conserva valores completos y cambios para inspección y exportación.
     """
-    Devuelve (filas, error, texto_memoria). Cada fila es el estado *después* de esa microoperación.
-
-    prefijo_fetch: antepone el ciclo de captación (PC→MAR, M→GPR+PC, GPR(OP)→OPR).
-    mar_pc_decimal: muestra PC y MAR en decimal 0…4095 (como «83» en algunas filminas).
-    omitir_repetidos: celdas en blanco si el registro no cambió respecto al ciclo anterior.
-    estado_inicial: si True, primera fila ciclo 0 «Estado inicial» antes de cualquier μop (como en parciales).
-    texto_memoria: resumen de lecturas RAM (PC→MAR, GPR(AD)→MAR) y valores finales en esas direcciones.
-    """
-    texto = codigo.replace("\r\n", "\n")
-    if prefijo_fetch:
-        texto = _PREFIJO_FETCH + texto
-    lineas = texto.split("\n")
-    from compilador.AnalizadorSintactico import parser, preprocesar_linea_microop
-
-    dispatch = {
-        "INC_ACC": VonNeuman.INC_ACC,
-        "INC_GPR": VonNeuman.INC_GPR,
-        "NOT_ACC": VonNeuman.NOT_ACC,
-        "NOT_F": VonNeuman.NOT_F,
-        "ROL_F_ACC": VonNeuman.ROL_F_ACC,
-        "ROR_F_ACC": VonNeuman.ROR_F_ACC,
-        "SUM_ACC_GPR": VonNeuman.SUM_ACC_GPR,
-        "ACC_TO_GPR": VonNeuman.ACC_TO_GPR,
-        "GPR_TO_ACC": VonNeuman.GPR_TO_ACC,
-        "ZERO_ACC": VonNeuman.ZERO_TO_ACC,
-        "ZERO_F": VonNeuman.ZERO_TO_F,
-        "GPR_AD_TO_MAR": VonNeuman.GPR_AD_TO_MAR,
-        "GPR_TO_M": VonNeuman.GPR_TO_M,
-        "M_TO_GPR": VonNeuman.M_TO_GPR,
-        "M_TO_ACC": VonNeuman.M_TO_ACC,
-        "PC_TO_MAR": VonNeuman.PC_TO_MAR,
-        "INC_PC": VonNeuman.INC_PC,
-        "GPR_OP_TO_OPR": VonNeuman.GPR_OP_TO_OPR,
-    }
-
-    c = clonar_cpu(cpu_base)
-    filas: list[dict] = []
-    mem_log: list[dict] = []
-    ciclo = 0
-
-    if estado_inicial:
-        filas.append(_fila_estado(0, "Estado inicial", c, mar_pc_decimal=mar_pc_decimal))
-
-    for num_linea, linea in enumerate(lineas, start=1):
-        linea = preprocesar_linea_microop(linea)
-        if not linea or linea.startswith("#"):
-            continue
+    lineas = [(numero, preprocesar_linea_microop(linea))
+              for numero, linea in enumerate(codigo.splitlines(), 1)]
+    lineas = [(numero, linea) for numero, linea in lineas if linea]
+    if prefijo_fetch and lineas:
         try:
-            instr = parser.parse(linea)
-        except Exception as e:
-            return filas, f"Línea {num_linea}: error al parsear ({e})", _formatear_panel_memoria_traza(mem_log, c)
+            ya_tiene_fetch = parsear_ciclo(lineas[0][1])[0] == "PC_TO_MAR"
+        except (ValueError, IndexError):
+            ya_tiene_fetch = False
+        if not ya_tiene_fetch:
+            lineas = [(None, linea) for linea in _PREFIJO_FETCH] + lineas
 
-        if not instr:
-            return filas, f"Línea {num_linea}: sintaxis inválida", _formatear_panel_memoria_traza(mem_log, c)
+    cpu = clonar_cpu(cpu_base)
+    filas = []
+    mem_log = []
+    anterior = _fila_estado(0, "Estado inicial", cpu, mar_pc_decimal=mar_pc_decimal)
+    if estado_inicial:
+        anterior.update(fase="Inicial", linea=None, ops=[], cambios=[],
+                        valores={k: anterior[k] for k in _COLUMNAS_SIN_REPETIR}, accesos=[])
+        filas.append(dict(anterior))
+    fase = "Ejecución"
+    error = None
+    for numero, linea in lineas:
+        ciclo = len(filas) + (0 if estado_inicial else 1)
+        try:
+            ops = parsear_ciclo(linea)
+            direccion_anterior = cpu.MAR.uint
+            ejecutar_ciclo(cpu, ops)
+        except (ValueError, IndexError, TypeError) as exc:
+            origen = f"Línea {numero}" if numero is not None else f"Búsqueda, ciclo {ciclo}"
+            error = f"{origen}: {exc}"
+            break
+        if "PC_TO_MAR" in ops:
+            fase = "Búsqueda"
+        texto = ", ".join(_OP_TEXTO[op] for op in ops)
+        fila = _fila_estado(ciclo, texto, cpu, mar_pc_decimal=mar_pc_decimal)
+        accesos = []
+        for op in ops:
+            if op in ("PC_TO_MAR", "GPR_AD_TO_MAR", "GPR_TO_M"):
+                escribe = op == "GPR_TO_M"
+                direccion = direccion_anterior if escribe else cpu.MAR.uint
+                evento = {"ciclo": ciclo, "tipo": "escritura" if escribe else "lectura",
+                          "dir": direccion, "dato": cpu.RAM.leer(direccion).uint}
+                accesos.append(evento)
+                mem_log.append(evento)
+        fila.update(
+            fase=fase, linea=numero, ops=ops, accesos=accesos,
+            valores={k: fila[k] for k in _COLUMNAS_SIN_REPETIR},
+            cambios=[k for k in _COLUMNAS_SIN_REPETIR if fila[k] != anterior[k]],
+        )
+        filas.append(fila)
+        anterior = fila
+        if "GPR_OP_TO_OPR" in ops:
+            fase = "Ejecución"
 
-        ops_linea = [t[0] for t in instr if t is not None and t[0] is not None]
-        if not ops_linea:
-            return (
-                filas,
-                f"Línea {num_linea}: sin operaciones reconocidas",
-                _formatear_panel_memoria_traza(mem_log, c),
-            )
-
-        for op in ops_linea:
-            if op not in dispatch:
-                return (
-                    filas,
-                    f"Línea {num_linea}: microoperación no soportada en traza: {op}",
-                    _formatear_panel_memoria_traza(mem_log, c),
-                )
-            try:
-                dispatch[op](c)
-            except Exception as e:
-                return filas, f"Línea {num_linea} ({op}): {e}", _formatear_panel_memoria_traza(mem_log, c)
-            ciclo += 1
-            texto = _OP_TEXTO.get(op, op)
-            if op == "PC_TO_MAR":
-                mem_log.append(
-                    {
-                        "ciclo": ciclo,
-                        "dir": c.MAR.uint & 0xFFF,
-                        "dato": c.M.uint & 0xFFF,
-                    }
-                )
-            elif op == "GPR_AD_TO_MAR":
-                mem_log.append(
-                    {
-                        "ciclo": ciclo,
-                        "dir": c.MAR.uint & 0xFFF,
-                        "dato": c.M.uint & 0xFFF,
-                    }
-                )
-            filas.append(_fila_estado(ciclo, texto, c, mar_pc_decimal=mar_pc_decimal))
-
-    mem_txt = _formatear_panel_memoria_traza(mem_log, c)
-    if filas and omitir_repetidos:
+    if omitir_repetidos:
         filas = compactar_filas_traza(filas)
-
-    return filas, None, mem_txt
+    return filas, error, _formatear_panel_memoria_traza(mem_log, cpu)

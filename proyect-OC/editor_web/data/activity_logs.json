@@ -1,3 +1,81 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- -ACC/4 + 2F + 1",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "PC -> MAR\nM -> GPR\nGPR(OP) -> OPR\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\nACC -> GPR\n\n0 -> ACC\nROL F, ACC\nRoL F, ACC\n\nACC + GPR -> ACC\nACC + 1 -> ACC",
+      "at": "2026-09-16T16:04:19.718406+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- M + 4ACC + 1",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "PC -> MAR\nM -> GPR\nGPR(OP) -> OPR\n\nOPR -> MAR\nM -> GPR\n\n0 -> F\nROL F, ACC\n0 -> F\nROL F, ACC\n\nACC + GPR -> ACC\nACC + 1 -> ACC",
+      "at": "2026-09-16T16:05:50.117733+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- -ACC/8",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "PC -> MAR\nM -> GPR\nGPR(OP) -> OPR\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\n\nACC + 5 -> ACC",
+      "at": "2026-09-16T16:06:04.707931+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- -ACC/8 + 5",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC",
+      "at": "2026-09-16T16:08:43.056759+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- -ACC/8 + 5",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "PC -> MAR\nM -> GPR, PC + 1 -> PC\nGPR(OP) -> OPR\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC",
+      "at": "2026-09-16T16:13:20.365484+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "ACC <- -ACC/8 + 5",
+      "mode": "Implicado (inherente)",
+      "code_excerpt": "PC -> MAR\nM -> GPR, PC + 1 -> PC\nGPR(OP) -> OPR\n\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n\n0 -> F\nROR F, ACC\n\nACC! -> ACC\nACC + 1 -> ACC\n\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC\nACC + 1 -> ACC",
+      "at": "2026-09-16T16:13:22.299386+00:00"
+    },
+    {
+      "kind": "infer",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "ok": true,
+      "inference": "Sin instrucciones para inferir",
+      "mode": "",
+      "code_excerpt": "",
+      "at": "2026-09-16T16:27:32.107147+00:00"
+    }
+  ]
 }

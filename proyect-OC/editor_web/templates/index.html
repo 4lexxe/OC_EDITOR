@@ -178,6 +178,7 @@
                     <span class="infer-step-label">Instrucción</span>
                   </div>
                   <p id="infer-instruction" class="infer-step-value">—</p>
+                  <p id="infer-notes" class="infer-notes" hidden></p>
                 </div>
                 <div class="infer-step-arrow" aria-hidden="true">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
@@ -235,7 +236,7 @@
           <div class="right-col">
           <section id="sec-memory" class="panel memory-ram-panel hidden-panel">
             <div class="panel-header">
-              <span class="panel-title">Registros y memoria RAM</span>
+              <span class="panel-title">Valores iniciales · Registros y RAM</span>
             </div>
             <div class="memory-ram-body">
               <div class="memory-ram-block">
@@ -244,6 +245,8 @@
               </div>
               <div class="memory-ram-block fill-mem">
                 <h3 class="subpanel-title">Memoria RAM (editable)</h3>
+                <div class="ram-quick-edit"><label>Dirección hex<input id="ram-address" maxlength="2" placeholder="20" aria-label="Dirección RAM hexadecimal" /></label><label>Dato hex<input id="ram-value" maxlength="3" placeholder="983" aria-label="Dato RAM hexadecimal" /></label><button type="button" id="btn-set-ram" class="trace-action action-btn">Guardar</button></div>
+                <p id="ram-edit-status" class="trace-source" role="status"></p>
                 <div id="memory-edit" class="memory-table"></div>
               </div>
               <div class="memory-ram-block hidden-panel">
@@ -255,77 +258,78 @@
 
           <section id="sec-trace" class="panel trace-panel">
             <div class="panel-header">
-              <span class="panel-title">Traza (tiempo real)</span>
+              <div class="trace-heading"><span class="panel-title">Tabla de traza</span><span class="trace-architecture">Arquitectura básica · Taub</span></div>
               <div class="panel-actions">
-                <button type="button" class="action-btn" title="Copiar tabla (TSV)" id="btn-copy-trace-table">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                </button>
-                <button type="button" class="action-btn" title="Actualizar traza" id="btn-refresh-trace">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/></svg>
-                </button>
+                <button type="button" class="action-btn trace-action" title="Copiar tabla para pegar en una planilla" id="btn-copy-trace-table">Copiar tabla</button>
+                <button type="button" class="action-btn trace-action" id="btn-refresh-trace">Actualizar</button>
               </div>
             </div>
             <div class="trace-body">
-              <p class="trace-hint">
-                En esta vista cargá <strong>PC, ACC, GPR, F, M</strong> y la <strong>RAM</strong> en el panel de arriba; la tabla muestra cada μop como en la hoja de examen.
-              </p>
-              <p class="trace-hint trace-hint-secondary">
-                Las líneas de microcódigo están en la vista <strong>Editor</strong> (icono de código en el menú izquierdo). Si la tabla solo muestra «Estado inicial», escribí ahí las μops y volvé a <strong>Traza</strong>.
-              </p>
-              <div class="trace-view-row">
-                <label class="trace-view-label" for="trace-mode">Vista</label>
-                <div class="select-wrapper trace-select-grow">
+              <div class="trace-example-bar">
+                <div class="trace-example-field">
+                  <label for="trace-example">Ejemplos del material</label>
+                  <select id="trace-example" class="gen-select"><option value="">Elegí un ejercicio…</option></select>
+                </div>
+                <button type="button" class="gen-btn" id="btn-load-trace-example" disabled>Cargar ejemplo</button>
+              </div>
+              <p id="trace-example-source" class="trace-source" hidden></p>
+              <details class="trace-code-editor">
+                <summary>Microoperaciones de esta traza <span>Ver / editar</span></summary>
+                <label class="trace-hint" for="trace-code">Una línea por ciclo. Separá con coma las operaciones simultáneas, como M→GPR, PC+1→PC.</label>
+                <textarea id="trace-code" rows="7" spellcheck="false" aria-label="Microoperaciones de la traza" placeholder="PC -> MAR
+M -> GPR, PC+1 -> PC
+GPR(OP) -> OPR"></textarea>
+              </details>
+              <div class="trace-controls">
+                <label class="trace-mode-field" for="trace-mode">Búsqueda
                   <select id="trace-mode" class="gen-select">
-                    <option value="fetch">Fetch + editor (estilo apuntes)</option>
-                    <option value="editor">Solo editor (sin fetch)</option>
+                    <option value="fetch">Completar si falta</option>
+                    <option value="editor">Usar solo mi código</option>
                   </select>
-                  <svg class="select-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </label>
+                <div class="trace-checks">
+                  <label class="check-label"><input type="checkbox" id="trace-compact" checked /><span class="check-custom"></span>Solo cambios</label>
+                  <label class="check-label"><input type="checkbox" id="trace-inicial" checked /><span class="check-custom"></span>Estado inicial</label>
+                  <label class="check-label"><input type="checkbox" id="trace-decimal" /><span class="check-custom"></span>PC / MAR decimal</label>
                 </div>
               </div>
-              <div class="trace-checks">
-                <label class="check-label">
-                  <input type="checkbox" id="trace-decimal" />
-                  <span class="check-custom"></span>
-                  MAR y PC en decimal
-                </label>
-                <label class="check-label">
-                  <input type="checkbox" id="trace-inicial" checked />
-                  <span class="check-custom"></span>
-                  Fila «Estado inicial» (ciclo 0)
-                </label>
-                <label class="check-label">
-                  <input type="checkbox" id="trace-compact" />
-                  <span class="check-custom"></span>
-                  Solo celdas que cambian (compacto)
-                </label>
+              <div class="trace-summary" aria-live="polite">
+                <span><strong id="trace-cycle-count">0</strong> ciclos</span>
+                <span><strong id="trace-fetch-count">0</strong> de búsqueda</span>
+                <span><strong id="trace-write-count">0</strong> escrituras</span>
+                <span class="trace-summary-result">ACC final <strong id="trace-final-acc">—</strong></span>
               </div>
-              <div class="trace-table-wrap">
+              <div class="trace-table-wrap" tabindex="0" role="region" aria-label="Tabla de ciclos, desplazable">
                 <table class="trace-table" id="trace-table">
+                  <caption class="sr-only">Estado de los registros después de cada ciclo. Seleccioná una fila para ver todos sus valores.</caption>
+                  <colgroup><col class="trace-col-cycle" /><col class="trace-col-micro" /><col span="9" /></colgroup>
                   <thead>
-                    <tr>
-                      <th>Ciclo</th>
-                      <th>Microoperación</th>
-                      <th>PC</th>
-                      <th>MAR</th>
-                      <th>GPR</th>
-                      <th>GPR(OP)</th>
-                      <th>GPR(AD)</th>
-                      <th>OPR</th>
-                      <th>ACC</th>
-                      <th>F</th>
-                      <th>M</th>
+                    <tr class="trace-group-head"><th colspan="2" scope="colgroup">Ciclo de instrucción</th><th colspan="2" scope="colgroup">Direcciones · 8 bits</th><th colspan="4" scope="colgroup">Instrucción / dato</th><th colspan="2" scope="colgroup">Acumulador</th><th scope="col">Memoria</th></tr>
+                    <tr class="trace-register-head">
+                      <th scope="col">Ciclo</th><th scope="col">Microoperación</th>
+                      <th scope="col" id="trace-head-pc">PC</th><th scope="col" id="trace-head-mar">MAR</th>
+                      <th scope="col">GPR <small>12 bits</small></th><th scope="col">GPR(OP) <small>4 bits</small></th>
+                      <th scope="col">GPR(AD) <small>8 bits</small></th><th scope="col">OPR <small>4 bits</small></th>
+                      <th scope="col">ACC <small>12 bits</small></th><th scope="col">F <small>1 bit</small></th><th scope="col">M <small>12 bits</small></th>
                     </tr>
                   </thead>
                   <tbody id="trace-rows"></tbody>
                 </table>
               </div>
-              <div class="trace-steps" id="trace-status"></div>
+              <div class="trace-legend"><span><i></i> Valor modificado</span><span>Celda vacía = conserva su valor · Datos en hexadecimal</span></div>
+              <div class="trace-inspector" id="trace-inspector" hidden>
+                <div class="trace-inspector-head"><strong id="trace-selected-title">Detalle del ciclo</strong><div><button type="button" id="trace-prev" aria-label="Ciclo anterior">←</button><button type="button" id="trace-next" aria-label="Ciclo siguiente">→</button></div></div>
+                <p id="trace-selected-operation"></p>
+                <dl id="trace-selected-registers"></dl>
+                <p id="trace-selected-memory" class="trace-source" hidden></p>
+              </div>
+              <div class="trace-steps" id="trace-status" role="status"></div>
             </div>
           </section>
 
           <div class="panel memory-trace-panel">
             <div class="panel-header">
-              <span class="panel-title">Memoria usada en la traza</span>
+              <span class="panel-title">Lecturas y escrituras de memoria</span>
               <button type="button" class="action-btn" title="Copiar" id="btn-copy-mem-trace">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
@@ -389,6 +393,11 @@ PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
           <h3>Inferencia</h3>
           <p>
             Debajo del editor verás <strong>Instrucción</strong> y <strong>Modo</strong> en dos recuadros, cada uno con su icono. Se actualizan solos mientras editás.
+          </p>
+          <p>
+            Las fórmulas usan notación de apuntes: <code>ACC/4</code> significa dividir en entero, sin decimales.
+            Si una rotación extrae un bit, se muestra como <code>F</code> y debajo se aclara de dónde sale.
+            Si intervienen varios bits distintos, aparecen como <code>F1</code>, <code>F2</code>, etc.
           </p>
           <h3>Reiniciar</h3>
           <p>

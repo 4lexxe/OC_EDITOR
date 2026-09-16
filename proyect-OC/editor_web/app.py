@@ -26,6 +26,9 @@ from modelo.Generador import ErrorGeneracion, generar  # noqa: E402
 from modelo.Von_Neumann import VonNeuman  # noqa: E402
 from modelo.explicacion_microops import texto_explicacion_codigo  # noqa: E402
 from modelo.traza import simular_traza  # noqa: E402
+from modelo.ciclos import ejecutar_ciclo
+from modelo.ejemplos_traza import EJEMPLOS_TRAZA
+from compilador.AnalizadorSintactico import parsear_ciclo
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-this-secret")
@@ -425,9 +428,9 @@ def _bin_a_hex_ui(s: str, bits: int) -> str:
             return "0"
         return raw[-1]
     if not raw:
-        return "000"
+        return "0" * ((bits + 3) // 4)
     raw = raw.zfill(bits)[-bits:]
-    return f"{int(raw, 2) & ((1 << bits) - 1):03X}"
+    return format(int(raw, 2) & ((1 << bits) - 1), f"0{(bits + 3) // 4}X")
 
 
 def _sanitize_bin(s: str, bits: int) -> str:
@@ -447,7 +450,7 @@ class EditorWebState:
         self.pc = 0
         self.code = ""
         self.registers = {
-            "PC": "000000000000",
+            "PC": "00000000",
             "ACC": "000000000000",
             "GPR": "000000000000",
             "F": "0",
@@ -459,7 +462,7 @@ class EditorWebState:
         self._sync_cpu_from_ui()
 
     def _sync_cpu_from_ui(self) -> None:
-        self.cpu.PC = _to_bitarray(self.registers["PC"], 12)
+        self.cpu.PC = _to_bitarray(self.registers["PC"], 8)
         self.cpu.ACC = _to_bitarray(self.registers["ACC"], 12)
         self.cpu.GPR = _to_bitarray(self.registers["GPR"], 12)
         self.cpu._sync_ir_fields()
@@ -486,7 +489,7 @@ class EditorWebState:
         regs = payload.get("registers", {})
         for key in ("PC", "ACC", "GPR", "F", "M"):
             if key in regs:
-                self.registers[key] = _sanitize_bin(regs[key], 1 if key == "F" else 12)
+                self.registers[key] = _sanitize_bin(regs[key], 1 if key == "F" else 8 if key == "PC" else 12)
         memory = payload.get("memory", None)
         if isinstance(memory, list):
             for i in range(min(256, len(memory))):
@@ -501,7 +504,7 @@ class EditorWebState:
     def serialize(self) -> dict:
         self._sync_ui_from_cpu()
         reg_hex = {
-            "PC": _bin_a_hex_ui(self.registers["PC"], 12),
+            "PC": _bin_a_hex_ui(self.registers["PC"], 8),
             "ACC": _bin_a_hex_ui(self.registers["ACC"], 12),
             "GPR": _bin_a_hex_ui(self.registers["GPR"], 12),
             "F": _bin_a_hex_ui(self.registers["F"], 1),
@@ -535,49 +538,12 @@ class EditorWebState:
             return self.serialize()
 
         try:
-            instr = parser.parse(linea)
-        except Exception as exc:
-            self.last_status = f"Línea {self.pc + 1}: error de sintaxis ({exc})"
+            ops_linea = parsear_ciclo(linea)
+            ejecutar_ciclo(self.cpu, ops_linea)
+        except (ValueError, IndexError, TypeError) as exc:
+            self.last_status = f"Línea {self.pc + 1}: {exc}"
             self.last_error = True
-            self.pc += 1
             return self.serialize()
-
-        ops_linea = [t[0] for t in (instr or []) if t is not None and t[0] is not None]
-        if not ops_linea:
-            self.last_status = f"Línea {self.pc + 1}: error de sintaxis en '{linea}'"
-            self.last_error = True
-            self.pc += 1
-            return self.serialize()
-
-        dispatch = {
-            "INC_ACC": self.cpu.INC_ACC,
-            "INC_GPR": self.cpu.INC_GPR,
-            "NOT_ACC": self.cpu.NOT_ACC,
-            "NOT_F": self.cpu.NOT_F,
-            "ROL_F_ACC": self.cpu.ROL_F_ACC,
-            "ROR_F_ACC": self.cpu.ROR_F_ACC,
-            "SUM_ACC_GPR": self.cpu.SUM_ACC_GPR,
-            "ACC_TO_GPR": self.cpu.ACC_TO_GPR,
-            "GPR_TO_ACC": self.cpu.GPR_TO_ACC,
-            "ZERO_ACC": self.cpu.ZERO_TO_ACC,
-            "ZERO_F": self.cpu.ZERO_TO_F,
-            "GPR_AD_TO_MAR": self.cpu.GPR_AD_TO_MAR,
-            "GPR_TO_M": self.cpu.GPR_TO_M,
-            "M_TO_GPR": self.cpu.M_TO_GPR,
-            "M_TO_ACC": self.cpu.M_TO_ACC,
-            "PC_TO_MAR": self.cpu.PC_TO_MAR,
-            "INC_PC": self.cpu.INC_PC,
-            "GPR_OP_TO_OPR": self.cpu.GPR_OP_TO_OPR,
-        }
-
-        for op in ops_linea:
-            fn = dispatch.get(op)
-            if fn is None:
-                self.last_status = f"Línea {self.pc + 1}: instrucción no soportada '{op}'"
-                self.last_error = True
-                self.pc += 1
-                return self.serialize()
-            fn()
 
         self.pc += 1
         self.last_status = f"Línea {self.pc}: {linea}  →  {' · '.join(ops_linea)}"
@@ -589,7 +555,7 @@ class EditorWebState:
         self.cpu = VonNeuman()
         self.pc = 0
         self.registers = {
-            "PC": "000000000000",
+            "PC": "00000000",
             "ACC": "000000000000",
             "GPR": "000000000000",
             "F": "0",
@@ -1157,11 +1123,12 @@ def api_infer():
     if not ops:
         infer_txt = "Sin instrucciones para inferir"
         mode_txt = ""
-        body = {"ok": True, "inference": infer_txt, "mode": mode_txt}
+        body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": []}
     else:
-        infer_txt = Inferidor.inferir(ops)
+        detalle = Inferidor.inferir_detallado(ops)
+        infer_txt = detalle["instruccion"]
         mode_txt = Inferidor.clasificar_modo_direccionamiento(ops)
-        body = {"ok": True, "inference": infer_txt, "mode": mode_txt}
+        body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": detalle["notas"]}
     _append_activity_log(
         {
             "kind": "infer",
@@ -1227,6 +1194,12 @@ def api_generate():
     return jsonify({"ok": True, "ops": ops, "message": msg_ok})
 
 
+@app.get("/api/trace/examples")
+@login_required
+def api_trace_examples():
+    return jsonify({"ok": True, "examples": EJEMPLOS_TRAZA})
+
+
 @app.post("/api/trace")
 @login_required
 def api_trace():
@@ -1240,7 +1213,7 @@ def api_trace():
     cpu = VonNeuman()
     regs = payload.get("registers", {})
     mem = payload.get("memory", [])
-    cpu.PC = _to_bitarray(regs.get("PC", "0" * 12), 12)
+    cpu.PC = _to_bitarray(regs.get("PC", "0" * 8), 8)
     cpu.ACC = _to_bitarray(regs.get("ACC", "0" * 12), 12)
     cpu.GPR = _to_bitarray(regs.get("GPR", "0" * 12), 12)
     cpu._sync_ir_fields()
@@ -1258,9 +1231,17 @@ def api_trace():
         omitir_repetidos=compact,
         estado_inicial=include_initial,
     )
+    ciclos = [fila for fila in filas if fila["ciclo"] > 0]
     return jsonify(
         {
             "ok": True,
+            "summary": {
+                "cycles": len(ciclos),
+                "microops": sum(len(fila["ops"]) for fila in ciclos),
+                "fetch_cycles": sum(fila["fase"] == "Búsqueda" for fila in ciclos),
+                "writes": sum(evento["tipo"] == "escritura" for fila in ciclos for evento in fila["accesos"]),
+                "acc": filas[-1]["valores"]["ACC"] if filas else f"{cpu.ACC.uint:03X}",
+            },
             "rows": filas,
             "error": err,
             "memory_info": mem_info,
