@@ -1322,14 +1322,19 @@ function initEvents() {
       document.body.dataset.sidebarView = view;
 
       const mem = byId("sec-memory");
+      const exercisesSec = byId("sec-exercises");
       const showRegsRam = view === "memory" || view === "trace";
       if (mem) {
         mem.classList.toggle("hidden-panel", !showRegsRam);
       }
 
+      if (exercisesSec) {
+        exercisesSec.classList.toggle("hidden-panel", view !== "exercises");
+      }
+
       const leftCol = document.querySelector(".editor-columns-wrap .left-col");
       if (leftCol) {
-        leftCol.classList.toggle("hidden-panel", view === "trace");
+        leftCol.classList.toggle("hidden-panel", view === "trace" || view === "exercises");
       }
 
       if (view === "editor") {
@@ -1338,6 +1343,9 @@ function initEvents() {
       } else if (view === "trace") {
         void refreshTrace();
         byId("sec-memory")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (view === "exercises") {
+        void loadExercisesCatalog();
+        exercisesSec?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "memory") {
         mem?.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (view === "arch") {
@@ -1400,6 +1408,426 @@ function initEvents() {
   setInterval(pingKeepalive, KEEPALIVE_MS);
 
   initMobileShellUi();
+  initExercisesUi();
+}
+
+const COMPLETED_EXERCISES_KEY = "editor_web_completed_exercises_v1";
+const EXERCISE_DRAFTS_KEY = "editor_web_exercise_drafts_v1";
+
+const exercisesState = {
+  list: [],
+  selectedId: null,
+  activeFilter: "all",
+  searchQuery: "",
+  completed: JSON.parse(localStorage.getItem(COMPLETED_EXERCISES_KEY) || "{}"),
+  drafts: JSON.parse(localStorage.getItem(EXERCISE_DRAFTS_KEY) || "{}"),
+  hintsRevealed: {},
+  solutionCache: {},
+};
+
+function saveCompletedExercises() {
+  try {
+    localStorage.setItem(COMPLETED_EXERCISES_KEY, JSON.stringify(exercisesState.completed));
+  } catch {}
+}
+
+function saveExerciseDrafts() {
+  try {
+    localStorage.setItem(EXERCISE_DRAFTS_KEY, JSON.stringify(exercisesState.drafts));
+  } catch {}
+}
+
+function updateExercisesProgress() {
+  const total = exercisesState.list.length;
+  const done = Object.keys(exercisesState.completed).filter((id) => exercisesState.completed[id]).length;
+  const pill = byId("ex-progress-pill");
+  if (pill) {
+    pill.textContent = `${done} / ${total} completados`;
+  }
+}
+
+async function loadExercisesCatalog() {
+  if (exercisesState.list.length === 0) {
+    try {
+      const res = await fetch("/api/exercises", { credentials: "same-origin" });
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.exercises)) {
+        exercisesState.list = data.exercises;
+      }
+    } catch (e) {
+      console.error("loadExercisesCatalog", e);
+    }
+  }
+  updateExercisesProgress();
+  renderExercisesList();
+  if (!exercisesState.selectedId && exercisesState.list.length > 0) {
+    selectExercise(exercisesState.list[0].id);
+  }
+}
+
+function renderExercisesList() {
+  const container = byId("exercises-items-list");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const q = exercisesState.searchQuery.trim().toLowerCase();
+  const filtered = exercisesState.list.filter((ej) => {
+    if (exercisesState.activeFilter !== "all" && ej.dificultad !== exercisesState.activeFilter) {
+      return false;
+    }
+    if (q) {
+      const hay = (ej.titulo + " " + ej.formula_display + " " + (ej.categoria || "") + " " + (ej.enunciado || "")).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding: 16px; font-size: 11px; color: var(--text-muted); text-align: center;">No se encontraron ejercicios.</div>';
+    return;
+  }
+
+  filtered.forEach((ej) => {
+    const item = document.createElement("div");
+    item.className = "exercise-item-card" + (ej.id === exercisesState.selectedId ? " active" : "") + (exercisesState.completed[ej.id] ? " is-completed" : "");
+    item.dataset.id = ej.id;
+
+    const diffClass = `diff-${ej.dificultad || "basico"}`;
+    const diffLabel = ej.dificultad_label || ej.dificultad;
+    const isDone = Boolean(exercisesState.completed[ej.id]);
+
+    item.innerHTML = `
+      <div class="ex-item-head">
+        <span class="ex-diff-pill ${diffClass}">${escapeHtml(diffLabel)}</span>
+        ${isDone ? '<span class="ex-item-check" title="Completado">✓</span>' : ""}
+      </div>
+      <div class="ex-item-title">${escapeHtml(ej.titulo)}</div>
+      <div class="ex-item-meta">
+        <span>${escapeHtml(ej.modo_label || ej.modo)}</span>
+        <span>·</span>
+        <code>${escapeHtml(ej.formula_display || "")}</code>
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      selectExercise(ej.id);
+    });
+
+    container.appendChild(item);
+  });
+}
+
+function selectExercise(id) {
+  const ej = exercisesState.list.find((e) => e.id === id);
+  if (!ej) return;
+  exercisesState.selectedId = id;
+
+  document.querySelectorAll(".exercise-item-card").forEach((el) => {
+    el.classList.toggle("active", el.dataset.id === id);
+  });
+
+  byId("exercise-workspace-empty")?.setAttribute("hidden", "true");
+  const detail = byId("exercise-detail");
+  if (detail) detail.removeAttribute("hidden");
+
+  // Badges & Headers
+  const diffTag = byId("ex-diff-tag");
+  if (diffTag) {
+    diffTag.textContent = ej.dificultad_label || ej.dificultad;
+    diffTag.className = `ex-diff-tag diff-${ej.dificultad || "basico"}`;
+  }
+  const modeTag = byId("ex-mode-tag");
+  if (modeTag) modeTag.textContent = ej.modo_label || ej.modo;
+  const srcTag = byId("ex-source-tag");
+  if (srcTag) srcTag.textContent = ej.fuente || "";
+
+  byId("ex-title").textContent = ej.titulo || "";
+  byId("ex-desc").textContent = ej.enunciado || "";
+  byId("ex-formula-text").textContent = ej.formula_display || "";
+
+  // Conditions list
+  const condList = byId("ex-conditions-list");
+  if (condList) {
+    condList.innerHTML = (ej.condiciones || []).map((c) => `<li>${escapeHtml(c)}</li>`).join("");
+  }
+
+  // Initial test state preview
+  const stateGrid = byId("ex-test-state-grid");
+  if (stateGrid) {
+    const sug = ej.estado_inicial_sugerido || {};
+    const items = [];
+    if ("PC" in sug) items.push(`PC: <strong>0x${sug.PC.toString(16).toUpperCase().padStart(2, "0")}</strong>`);
+    if ("ACC" in sug) items.push(`ACC: <strong>0x${sug.ACC.toString(16).toUpperCase().padStart(3, "0")}</strong>`);
+    if ("F" in sug) items.push(`F: <strong>${sug.F}</strong>`);
+    if ("GPR" in sug && sug.GPR) items.push(`GPR: <strong>0x${sug.GPR.toString(16).toUpperCase().padStart(3, "0")}</strong>`);
+    if (sug.memoria && typeof sug.memoria === "object") {
+      Object.entries(sug.memoria).forEach(([k, v]) => {
+        const addrHex = Number(k).toString(16).toUpperCase().padStart(2, "0");
+        const valHex = Number(v).toString(16).toUpperCase().padStart(3, "0");
+        items.push(`M[0x${addrHex}]: <strong>0x${valHex}</strong>`);
+      });
+    }
+    stateGrid.innerHTML = items.map((t) => `<div class="ex-state-pill">${t}</div>`).join("");
+  }
+
+  // Code editor draft
+  const codeInput = byId("ex-code-input");
+  if (codeInput) {
+    codeInput.value = exercisesState.drafts[id] || "";
+  }
+
+  // Reset hint & result cards
+  const hintCard = byId("ex-hint-card");
+  if (hintCard) hintCard.hidden = true;
+  const hintsLeft = byId("ex-hints-left");
+  const pistas = ej.pistas || [];
+  const revealed = exercisesState.hintsRevealed[id] || 0;
+  if (hintsLeft) hintsLeft.textContent = `${Math.max(0, pistas.length - revealed)}`;
+
+  const resCard = byId("ex-result-card");
+  if (resCard) resCard.hidden = true;
+
+  // Solution details
+  const solDetails = byId("ex-solution-details");
+  if (solDetails) {
+    solDetails.removeAttribute("open");
+    byId("ex-solution-code").textContent = "Cargando solución...";
+    byId("ex-solution-explanation").textContent = "";
+  }
+}
+
+async function verifyCurrentExercise() {
+  const id = exercisesState.selectedId;
+  if (!id) return;
+  const ej = exercisesState.list.find((e) => e.id === id);
+  if (!ej) return;
+
+  const code = (byId("ex-code-input")?.value || "").trim();
+  exercisesState.drafts[id] = code;
+  saveExerciseDrafts();
+
+  const btnVerify = byId("btn-verify-ex");
+  if (btnVerify) {
+    btnVerify.disabled = true;
+    btnVerify.innerHTML = '<span style="opacity:0.8;">Verificando...</span>';
+  }
+
+  try {
+    const data = await postJson("/api/exercises/verify", {
+      exercise_id: id,
+      code: code,
+      browser_session_id: getBrowserSessionId()
+    });
+
+    const resCard = byId("ex-result-card");
+    const resTitle = byId("ex-result-title");
+    const resFeedback = byId("ex-result-feedback");
+    const casesContainer = byId("ex-cases-container");
+
+    if (resCard) resCard.hidden = false;
+
+    if (data.ok) {
+      if (resCard) {
+        resCard.className = "ex-result-card result-pass";
+      }
+      if (resTitle) resTitle.textContent = `¡Desafío superado! (${data.ciclos_usados || 0} ciclos)`;
+      if (resFeedback) resFeedback.textContent = data.feedback || "Solución aprobada en todos los casos de prueba.";
+
+      exercisesState.completed[id] = true;
+      saveCompletedExercises();
+      updateExercisesProgress();
+      renderExercisesList();
+    } else {
+      if (resCard) {
+        resCard.className = "ex-result-card result-fail";
+      }
+      if (resTitle) resTitle.textContent = `Resultado incompleto (${data.casos_aprobados || 0}/${data.casos_totales || 0} casos pasados)`;
+      if (resFeedback) resFeedback.textContent = data.feedback || data.error || "Revisá los casos fallidos a continuación.";
+    }
+
+    if (casesContainer) {
+      casesContainer.innerHTML = (data.detalles_casos || []).map((c) => {
+        const pass = c.paso;
+        const badgeClass = pass ? "badge-case-pass" : "badge-case-fail";
+        const badgeText = pass ? "✓ Paso" : "✗ Falló";
+        let extra = "";
+        if (c.error_msg) {
+          extra = `<div class="ex-case-discrepancy">${escapeHtml(c.error_msg)}</div>`;
+        } else if (c.discrepancias && c.discrepancias.length > 0) {
+          extra = c.discrepancias.map((d) => `<div class="ex-case-discrepancy">${escapeHtml(d)}</div>`).join("");
+        }
+        return `
+          <div class="ex-case-card">
+            <div class="ex-case-head">
+              <strong>${escapeHtml(c.nombre || `Caso #${c.caso_num}`)}</strong>
+              <span class="ex-case-badge ${badgeClass}">${badgeText}</span>
+            </div>
+            ${extra}
+          </div>
+        `;
+      }).join("");
+    }
+  } catch (err) {
+    console.error("verifyCurrentExercise", err);
+    setStatus("Error de comunicación al verificar.", true);
+  } finally {
+    if (btnVerify) {
+      btnVerify.disabled = false;
+      btnVerify.innerHTML = `
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Verificar mi solución</span>
+      `;
+    }
+  }
+}
+
+function giveExerciseHint() {
+  const id = exercisesState.selectedId;
+  if (!id) return;
+  const ej = exercisesState.list.find((e) => e.id === id);
+  if (!ej) return;
+
+  const pistas = ej.pistas || [];
+  if (pistas.length === 0) {
+    setStatus("Este ejercicio no tiene pistas adicionales.");
+    return;
+  }
+
+  let revealed = exercisesState.hintsRevealed[id] || 0;
+  revealed = Math.min(revealed + 1, pistas.length);
+  exercisesState.hintsRevealed[id] = revealed;
+
+  const hintCard = byId("ex-hint-card");
+  const hintText = byId("ex-hint-text");
+  const hintsLeft = byId("ex-hints-left");
+
+  if (hintCard && hintText) {
+    hintCard.hidden = false;
+    hintText.innerHTML = pistas.slice(0, revealed).map((p, idx) => `<div><strong>Pista ${idx + 1}:</strong> ${escapeHtml(p)}</div>`).join("<hr style='margin:6px 0; border:none; border-top:1px solid rgba(245,158,11,0.2);'>");
+  }
+  if (hintsLeft) {
+    hintsLeft.textContent = `${Math.max(0, pistas.length - revealed)}`;
+  }
+}
+
+function loadExerciseIntoMainEditor() {
+  const id = exercisesState.selectedId;
+  if (!id) return;
+  const code = byId("ex-code-input")?.value || "";
+  byId("code").value = code;
+  resetEditorHistory(code);
+  updateLineNumbers();
+
+  document.querySelector('.nav-item[data-view="editor"]')?.click();
+  setStatus("Secuencia del ejercicio cargada en el Editor.");
+}
+
+function loadExerciseIntoMainTrace() {
+  const id = exercisesState.selectedId;
+  if (!id) return;
+  const ej = exercisesState.list.find((e) => e.id === id);
+  if (!ej) return;
+
+  const code = byId("ex-code-input")?.value || "";
+  byId("code").value = code;
+  resetEditorHistory(code);
+  updateLineNumbers();
+
+  const sug = ej.estado_inicial_sugerido || {};
+  if ("PC" in sug) state.registers["PC"] = Number(sug.PC).toString(2).padStart(8, "0");
+  if ("ACC" in sug) state.registers["ACC"] = Number(sug.ACC).toString(2).padStart(12, "0");
+  if ("F" in sug) state.registers["F"] = Number(sug.F).toString(2).padStart(1, "0");
+  if ("GPR" in sug) state.registers["GPR"] = Number(sug.GPR).toString(2).padStart(12, "0");
+  if (sug.memoria && typeof sug.memoria === "object") {
+    Object.entries(sug.memoria).forEach(([addr, val]) => {
+      const idx = Number(addr);
+      if (idx >= 0 && idx < 256) {
+        state.memory[idx] = Number(val).toString(2).padStart(12, "0");
+      }
+    });
+  }
+  applyState(state);
+
+  document.querySelector('.nav-item[data-view="trace"]')?.click();
+  setStatus("Secuencia y estado cargados en Traza.");
+}
+
+async function handleSolutionToggle() {
+  const details = byId("ex-solution-details");
+  if (!details || !details.open) return;
+  const id = exercisesState.selectedId;
+  if (!id) return;
+
+  const solPre = byId("ex-solution-code");
+  const solExpl = byId("ex-solution-explanation");
+
+  const solData = await fetchExerciseSolution(id);
+  if (solData && solData.ok) {
+    if (solPre) solPre.textContent = solData.solution || "No disponible.";
+    if (solExpl) solExpl.textContent = solData.explanation || "";
+  } else {
+    if (solPre) solPre.textContent = "No se pudo cargar la solución.";
+  }
+}
+
+async function fetchExerciseSolution(id) {
+  if (exercisesState.solutionCache[id]) {
+    return exercisesState.solutionCache[id];
+  }
+  try {
+    const res = await fetch(`/api/exercises/${encodeURIComponent(id)}/solution`, { credentials: "same-origin" });
+    const data = await res.json();
+    if (data.ok) {
+      exercisesState.solutionCache[id] = data;
+      return data;
+    }
+  } catch (err) {
+    console.error("fetchExerciseSolution", err);
+  }
+  return null;
+}
+
+function initExercisesUi() {
+  document.querySelectorAll(".ex-filter-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".ex-filter-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      exercisesState.activeFilter = btn.dataset.diff || "all";
+      renderExercisesList();
+    });
+  });
+
+  byId("ex-search-input")?.addEventListener("input", (e) => {
+    exercisesState.searchQuery = e.target.value;
+    renderExercisesList();
+  });
+
+  byId("btn-verify-ex")?.addEventListener("click", () => {
+    verifyCurrentExercise();
+  });
+
+  byId("btn-hint-ex")?.addEventListener("click", () => {
+    giveExerciseHint();
+  });
+
+  byId("btn-load-main-editor")?.addEventListener("click", () => {
+    loadExerciseIntoMainEditor();
+  });
+
+  byId("btn-load-main-trace")?.addEventListener("click", () => {
+    loadExerciseIntoMainTrace();
+  });
+
+  byId("ex-code-input")?.addEventListener("input", () => {
+    if (exercisesState.selectedId) {
+      exercisesState.drafts[exercisesState.selectedId] = byId("ex-code-input").value;
+      saveExerciseDrafts();
+    }
+  });
+
+  byId("ex-solution-details")?.addEventListener("toggle", () => {
+    handleSolutionToggle();
+  });
 }
 
 function setMobileEditorTab(name) {

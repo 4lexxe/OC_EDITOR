@@ -29,6 +29,8 @@ from modelo.traza import simular_traza  # noqa: E402
 from modelo.ciclos import ejecutar_ciclo
 from modelo.ejemplos_traza import EJEMPLOS_TRAZA
 from compilador.AnalizadorSintactico import parsear_ciclo
+from modelo.ejercicios import obtener_ejercicios, obtener_ejercicio_por_id
+from modelo.validador_ejercicios import validar_solucion_ejercicio
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-this-secret")
@@ -1248,6 +1250,74 @@ def api_trace():
             "explanation": texto_explicacion_codigo(code),
         }
     )
+
+
+@app.get("/api/exercises")
+@login_required
+def api_exercises_list():
+    ejercicios = obtener_ejercicios()
+    lista_publica = []
+    for ej in ejercicios:
+        c = dict(ej)
+        c.pop("solucion_referencia", None)
+        c.pop("explicacion_solucion", None)
+        lista_publica.append(c)
+    return jsonify({"ok": True, "exercises": lista_publica})
+
+
+@app.get("/api/exercises/<exercise_id>")
+@login_required
+def api_exercise_detail(exercise_id: str):
+    ej = obtener_ejercicio_por_id(exercise_id)
+    if not ej:
+        return jsonify({"ok": False, "error": "Ejercicio no encontrado."}), 404
+    c = dict(ej)
+    c.pop("solucion_referencia", None)
+    c.pop("explicacion_solucion", None)
+    return jsonify({"ok": True, "exercise": c})
+
+
+@app.get("/api/exercises/<exercise_id>/solution")
+@login_required
+def api_exercise_solution(exercise_id: str):
+    ej = obtener_ejercicio_por_id(exercise_id)
+    if not ej:
+        return jsonify({"ok": False, "error": "Ejercicio no encontrado."}), 404
+    return jsonify({
+        "ok": True,
+        "exercise_id": exercise_id,
+        "solution": ej.get("solucion_referencia", ""),
+        "explanation": ej.get("explicacion_solucion", "")
+    })
+
+
+@app.post("/api/exercises/verify")
+@login_required
+def api_exercise_verify():
+    payload = request.get_json(force=True) or {}
+    ejercicio_id = str(payload.get("exercise_id", "")).strip()
+    codigo = str(payload.get("code", ""))
+    
+    if not ejercicio_id:
+        return jsonify({"ok": False, "error": "Se requiere exercise_id."}), 400
+
+    resultado = validar_solucion_ejercicio(ejercicio_id, codigo)
+    
+    email = _normalize_email(str(session.get("user_email", "") or ""))
+    bsid = _activity_browser_sid(payload)
+    _append_activity_log({
+        "kind": "exercise_verify",
+        "user_email": email,
+        "user_display": _user_display_for_email(email) if email else "",
+        "browser_session_id": bsid,
+        "exercise_id": ejercicio_id,
+        "ok": bool(resultado.get("ok")),
+        "casos_aprobados": resultado.get("casos_aprobados", 0),
+        "casos_totales": resultado.get("casos_totales", 0),
+        "code_excerpt": codigo[:4000]
+    })
+    
+    return jsonify(resultado)
 
 
 def _start_self_keepalive_if_configured() -> None:

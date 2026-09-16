@@ -19,7 +19,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Victor+Mono:ital,wght@0,400;1,500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/static/style.css?v=2.1" />
+    <link rel="stylesheet" href="/static/style.css?v=2.2" />
   </head>
   <body data-mtab="code" data-sidebar-view="editor">
     <header class="topbar">
@@ -81,6 +81,10 @@
           <button type="button" class="nav-item" data-view="trace">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span>Traza</span>
+          </button>
+          <button type="button" class="nav-item" data-view="exercises">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+            <span>Ejercicios</span>
           </button>
           <button type="button" class="nav-item" data-view="memory">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -359,6 +363,112 @@ GPR(OP) -> OPR"></textarea>
           </div>
         </div>
 
+        <section id="sec-exercises" class="panel exercises-panel hidden-panel">
+          <div class="panel-header exercises-panel-header">
+            <div class="exercises-header-left">
+              <span class="panel-title">Desafíos y Ejercicios de Microprogramación</span>
+              <span class="exercise-progress-pill" id="ex-progress-pill">0 / 0 completados</span>
+            </div>
+            <div class="exercises-filter-bar">
+              <button type="button" class="ex-filter-btn active" data-diff="all">Todos</button>
+              <button type="button" class="ex-filter-btn" data-diff="basico">Básico</button>
+              <button type="button" class="ex-filter-btn" data-diff="intermedio">Intermedio</button>
+              <button type="button" class="ex-filter-btn" data-diff="avanzado">Avanzado</button>
+              <button type="button" class="ex-filter-btn ex-filter-btn--tryhard" data-diff="tryhard">🔥 Tryhard</button>
+            </div>
+          </div>
+          <div class="exercises-container">
+            <div class="exercises-sidebar-list">
+              <div class="exercises-search-box">
+                <input type="text" id="ex-search-input" placeholder="Buscar ejercicio..." class="gen-input" />
+              </div>
+              <div class="exercises-items-list" id="exercises-items-list" role="list">
+                <!-- Se puebla dinámicamente con JS -->
+              </div>
+            </div>
+            <div class="exercise-workspace" id="exercise-workspace">
+              <div class="exercise-workspace-empty" id="exercise-workspace-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                <p>Elegí un ejercicio de la lista para comenzar a resolver.</p>
+              </div>
+              <div class="exercise-detail" id="exercise-detail" hidden>
+                <div class="ex-detail-head">
+                  <div class="ex-badges">
+                    <span class="ex-diff-tag" id="ex-diff-tag">Básico</span>
+                    <span class="ex-mode-tag" id="ex-mode-tag">Modo Implicado</span>
+                    <span class="ex-source-tag" id="ex-source-tag"></span>
+                  </div>
+                  <h2 class="ex-title" id="ex-title"></h2>
+                  <p class="ex-desc" id="ex-desc"></p>
+                </div>
+
+                <div class="ex-formula-card">
+                  <span class="ex-formula-label">Operación a implementar</span>
+                  <div class="ex-formula-text" id="ex-formula-text"></div>
+                </div>
+
+                <div class="ex-conditions-box">
+                  <h3>Condiciones y Requisitos</h3>
+                  <ul id="ex-conditions-list"></ul>
+                </div>
+
+                <div class="ex-test-state-preview">
+                  <h3>Estado inicial de prueba</h3>
+                  <div class="ex-test-state-grid" id="ex-test-state-grid"></div>
+                </div>
+
+                <div class="ex-code-section">
+                  <div class="ex-code-head">
+                    <label for="ex-code-input">Tu secuencia de microoperaciones</label>
+                    <span class="ex-code-hint">Una microoperación por ciclo (separá con coma las simultáneas)</span>
+                  </div>
+                  <textarea id="ex-code-input" rows="8" spellcheck="false" placeholder="Escribí aquí las microoperaciones..."></textarea>
+                  
+                  <div class="ex-actions-bar">
+                    <button type="button" class="btn-verify-ex" id="btn-verify-ex">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      <span>Verificar mi solución</span>
+                    </button>
+                    <button type="button" class="btn-hint-ex" id="btn-hint-ex">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                      <span>Pedir pista (<span id="ex-hints-left">0</span>)</span>
+                    </button>
+                    <button type="button" class="btn-load-main-editor" id="btn-load-main-editor" title="Cargar este código en el editor principal">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                      <span>Abrir en Editor</span>
+                    </button>
+                    <button type="button" class="btn-load-main-trace" id="btn-load-main-trace" title="Simular la traza ciclo por ciclo">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                      <span>Ver en Traza</span>
+                    </button>
+                  </div>
+                  <div class="ex-hint-card" id="ex-hint-card" hidden>
+                    <strong>💡 Pista:</strong>
+                    <p id="ex-hint-text"></p>
+                  </div>
+                </div>
+
+                <div class="ex-result-card" id="ex-result-card" hidden>
+                  <div class="ex-result-head" id="ex-result-head">
+                    <span class="ex-result-icon" id="ex-result-icon"></span>
+                    <span class="ex-result-title" id="ex-result-title"></span>
+                  </div>
+                  <p class="ex-result-feedback" id="ex-result-feedback"></p>
+                  <div class="ex-cases-container" id="ex-cases-container"></div>
+                </div>
+
+                <details class="ex-solution-details" id="ex-solution-details">
+                  <summary>Ver solución completa explicada</summary>
+                  <div class="ex-solution-body">
+                    <pre id="ex-solution-code" class="ex-sol-pre"></pre>
+                    <p id="ex-solution-explanation" class="ex-sol-expl"></p>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <button type="button" class="mobile-fab-execute" id="btn-play-fab-mobile" title="Ejecutar un paso">
           <span class="mobile-fab-execute-icon" aria-hidden="true">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 5 8 19 19 12 8 5"/></svg>
@@ -443,6 +553,6 @@ PC -&gt; MAR        ; dirección de instrucción a MAR</pre>
     <script>
       window.__EDITOR_FLAGS__ = {{ {"is_admin": is_admin, "user_email": user_email or ""}|tojson }};
     </script>
-    <script src="/static/app.js?v=2.1"></script>
+    <script src="/static/app.js?v=2.2"></script>
   </body>
 </html>
