@@ -526,16 +526,17 @@ class EditorWebState:
 
     def ejecutar_una(self) -> dict:
         self._sync_cpu_from_ui()
-        lineas = self.code.strip().split("\n") if self.code.strip() else []
+        lineas = self.code.splitlines() if self.code else []
         if self.pc >= len(lineas):
             self.last_status = f"Fin del programa — ACC={self.cpu.ACC.bin}"
             self.last_error = False
             return self.serialize()
 
-        linea = preprocesar_linea_microop(lineas[self.pc])
+        linea_raw = lineas[self.pc]
+        linea = preprocesar_linea_microop(linea_raw)
         if not linea:
             self.pc += 1
-            self.last_status = f"Línea {self.pc}: vacía/comentario, se omitió."
+            self.last_status = f"Línea {self.pc}: vacía o comentario, se omitió."
             self.last_error = False
             return self.serialize()
 
@@ -1111,26 +1112,58 @@ def api_infer():
     editor_state = _get_editor_state(payload)
     code = str(payload.get("code", editor_state.code))
     ciclos = []
-    try:
-        for numero, linea in enumerate(code.splitlines(), 1):
+    syntax_error = None
+
+    for numero, linea_raw in enumerate(code.splitlines(), 1):
+        linea = preprocesar_linea_microop(linea_raw)
+        if not linea:
+            continue
+        try:
             ciclo = parsear_ciclo(linea)
             validar_ciclo(ciclo)
             if ciclo:
                 ciclos.append(ciclo)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": f"Línea {numero}: {exc}"}), 400
-    ops = [op for ciclo in ciclos for op in ciclo]
+        except Exception as exc:
+            syntax_error = f"Línea {numero}: {exc}"
+            break
+
     email = _normalize_email(str(session.get("user_email", "") or ""))
     bsid = _activity_browser_sid(payload)
-    if not ops:
-        infer_txt = "Sin instrucciones para inferir"
-        mode_txt = ""
-        body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": []}
+
+    if syntax_error:
+        body = {
+            "ok": True,
+            "inference": f"⚠️ {syntax_error}",
+            "mode": "No inferible",
+            "notes": [f"Error de sintaxis: {syntax_error}"],
+            "error": syntax_error,
+        }
     else:
-        detalle = Inferidor.inferir_detallado(ops, ciclos=ciclos)
-        infer_txt = detalle["instruccion"]
-        mode_txt = Inferidor.clasificar_modo_direccionamiento(ops)
-        body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": detalle["notas"], "flag_analysis": detalle.get("analisis_f")}
+        ops = [op for ciclo in ciclos for op in ciclo]
+        if not ops:
+            infer_txt = "Sin instrucciones para inferir"
+            mode_txt = ""
+            body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": []}
+        else:
+            try:
+                detalle = Inferidor.inferir_detallado(ops, ciclos=ciclos)
+                infer_txt = detalle["instruccion"]
+                mode_txt = Inferidor.clasificar_modo_direccionamiento(ops)
+                body = {
+                    "ok": True,
+                    "inference": infer_txt,
+                    "mode": mode_txt,
+                    "notes": detalle["notas"],
+                    "flag_analysis": detalle.get("analisis_f"),
+                }
+            except Exception as exc:
+                body = {
+                    "ok": True,
+                    "inference": "Operación no estándar / personalizada",
+                    "mode": Inferidor.clasificar_modo_direccionamiento(ops) if ops else "—",
+                    "notes": [f"No se pudo inferir la fórmula simbólica: {exc}"],
+                }
+
     _append_activity_log(
         {
             "kind": "infer",

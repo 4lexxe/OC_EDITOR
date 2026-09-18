@@ -954,36 +954,40 @@ async function refreshInference() {
   const instEl = byId("infer-instruction");
   const modeEl = byId("infer-mode");
   const notesEl = byId("infer-notes");
-  const data = await postJson("/api/infer", { code: byId("code").value, browser_session_id: getBrowserSessionId() });
-  if (!data.ok) {
+  try {
+    const data = await postJson("/api/infer", { code: byId("code").value, browser_session_id: getBrowserSessionId() });
+    if (!data.ok) {
+      if (notesEl) {
+        notesEl.textContent = data.error || "";
+        notesEl.hidden = !data.error;
+      }
+      if (instEl) {
+        instEl.textContent = data.error || "—";
+        instEl.classList.toggle("infer-step-value--empty", !data.error);
+      }
+      if (modeEl) {
+        modeEl.textContent = "—";
+        modeEl.classList.add("infer-step-value--empty");
+      }
+      return;
+    }
+    const rawInstr = (data.inference || "").trim();
+    const rawMode = (data.mode || "").trim();
     if (notesEl) {
-      notesEl.textContent = "";
-      notesEl.hidden = true;
+      const notes = Array.isArray(data.notes) ? data.notes : [];
+      notesEl.textContent = notes.join("\n");
+      notesEl.hidden = notes.length === 0;
     }
     if (instEl) {
-      instEl.textContent = "—";
-      instEl.classList.add("infer-step-value--empty");
+      instEl.textContent = rawInstr || "—";
+      instEl.classList.toggle("infer-step-value--empty", !rawInstr);
     }
     if (modeEl) {
-      modeEl.textContent = "—";
-      modeEl.classList.add("infer-step-value--empty");
+      modeEl.textContent = rawMode || "—";
+      modeEl.classList.toggle("infer-step-value--empty", !rawMode);
     }
-    return;
-  }
-  const rawInstr = (data.inference || "").trim();
-  const rawMode = (data.mode || "").trim();
-  if (notesEl) {
-    const notes = Array.isArray(data.notes) ? data.notes : [];
-    notesEl.textContent = notes.join("\n");
-    notesEl.hidden = notes.length === 0;
-  }
-  if (instEl) {
-    instEl.textContent = rawInstr || "—";
-    instEl.classList.toggle("infer-step-value--empty", !rawInstr);
-  }
-  if (modeEl) {
-    modeEl.textContent = rawMode || "—";
-    modeEl.classList.toggle("infer-step-value--empty", !rawMode);
+  } catch (err) {
+    console.warn("refreshInference error:", err);
   }
 }
 
