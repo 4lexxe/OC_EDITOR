@@ -117,9 +117,10 @@ def _finalizar(nucleo: list, modo_n: str | None) -> list:
     if modo_n is None:
         return nucleo
     if modo_n == "implicado":
-        if any(x == "GPR(AD) -> MAR" for x in nucleo):
+        if any(x in {"GPR(AD) -> MAR", "GPR -> M", "M -> GPR", "M -> ACC"} for x in nucleo):
             raise ErrorGeneracion(
-                "Modo implicado/inherente: no debe haber GPR(AD) -> MAR en la ejecución."
+                "Esta plantilla necesita memoria auxiliar y no sirve en modo implicado. "
+                "Usá una solución que conserve los operandos en ACC, GPR y F, como las del apartado Ejercicios."
             )
         return FETCH_CICLO_INSTRUCCION + nucleo
     if modo_n == "directo":
@@ -174,6 +175,19 @@ def generar(expresion: str, modo: str | None = None) -> list:
 
     modo_n = _normalizar_modo(modo)
     ops = []
+
+    # Capturar F antes de multiplicar/rotar. Este orden conserva F inicial
+    # para toda la familia M <- cm*M + cf*F + k con coeficientes enteros.
+    cm, cf = expr.coeff(M), expr.coeff(F)
+    resto = expand(expr - cm*M - cf*F)
+    if (destino_str == "M" and cf != 0 and expr.free_symbols <= {M, F}
+            and all(_es_coeficiente_entero_sympy(v) for v in (cm, cf, resto))):
+        ops = _PAR_MEM_DIRECTO + ["0 -> ACC", "ROL F, ACC"]
+        ops += _multiplicar_ACC_sin_memoria_M(int(cf))
+        ops += ["M -> GPR"]
+        ops += (["GPR+ACC -> ACC"] * int(cm) if cm >= 0 else _acc_restar_gpr_repetido(-int(cm)))
+        ops += _agregar_constante(int(resto)) + ["ACC -> GPR", "GPR -> M"]
+        return _finalizar(ops, modo_n)
 
     # ACC <- ACC - F  (apuntes: direccionamiento implicado + ciclo fetch opcional)
     esperado_acc_menos_f = ACC - F
@@ -824,57 +838,8 @@ def _rol_n(n: int) -> list:
 
 
 def _multiplicar_ACC(n: int) -> list:
-    """
-    Genera microops para ACC <- n * ACC.
-    Usa duplicaciones sucesivas (ACC -> GPR, GPR+ACC -> ACC).
-    """
-    if n == 0:
-        return ["0 -> ACC"]
-    if n == 1:
-        return []
-    if n == -1:
-        return ["ACC! -> ACC", "ACC+1 -> ACC"]
-
-    ops = []
-    negativo = n < 0
-    n = abs(n)
-
-    # Factorizamos n como producto de potencias de 2 y sumas
-    # Estrategia: duplicar ACC hasta llegar a n
-    # Ejemplo: n=8 → x2, x2, x2  (3 duplicaciones)
-    # Ejemplo: n=6 → x2 (ACC=2A), guardar, x2 (ACC=4A), sumar GPR → 6A
-    # Usamos la representación binaria para la cadena de adiciones (método shift-and-add)
-    bits = bin(n)[2:]  # ej: 8 -> '1000', 6 -> '110'
-
-    # Empezamos con resultado = ACC (1 vez)
-    # Por cada bit siguiente: duplicar; si es 1, sumar ACC original
-    # Para esto necesitamos guardar ACC original en M
-    if _es_potencia_de_2(n):
-        # Caso simple: solo ROL
-        k = n.bit_length() - 1
-        ops += _rol_n(k)
-    else:
-        # Método shift-and-add usando M como temporal
-        ops.append("GPR -> M")       # guardar ACC original en M (via GPR=ACC previo)
-        ops.append("ACC -> GPR")
-        ops.append("GPR+ACC -> ACC") # ACC = 2*ACC
-
-        acum_bits = 2
-        for bit in bits[2:]:  # saltamos el primer '1' ya procesado
-            # Duplicar
-            ops.append("ACC -> GPR")
-            ops.append("GPR+ACC -> ACC")
-            acum_bits *= 2
-            if bit == '1':
-                # Recuperar ACC original de M y sumar
-                ops.append("M -> GPR")
-                ops.append("GPR+ACC -> ACC")
-                acum_bits += 1  # aproximado, no exacto para todos los casos
-
-    if negativo:
-        ops += ["ACC! -> ACC", "ACC+1 -> ACC"]
-
-    return ops
+    """Multiplica usando sumas; conserva F y no escribe RAM como auxiliar."""
+    return _multiplicar_ACC_sin_memoria_M(n)
 
 
 def _multiplicar_GPR(n: int, ops_acc_zero: bool = False) -> list:

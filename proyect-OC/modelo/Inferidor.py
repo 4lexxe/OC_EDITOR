@@ -11,6 +11,7 @@ import re
 
 from sympy import symbols, simplify, expand, sympify, Integer, floor, Mod
 from modelo.formato_apuntes import FormatoApuntes, normalizar_divisiones
+from modelo.seguimiento_f import analizar_f
 
 
 # Símbolos iniciales para cada registro
@@ -144,9 +145,14 @@ def _presentar_resultado(resultado) -> dict:
     }
 
 
-def inferir_detallado(ops: list) -> dict:
+def inferir_detallado(ops: list, ciclos: list | None = None) -> dict:
     """Instrucción en notación de apuntes y aclaraciones para web y escritorio."""
-    return _presentar_resultado(_inferir_expresiones(ops))
+    resultado = _presentar_resultado(_inferir_expresiones(ops, ciclos=ciclos))
+    if ops:
+        analisis = analizar_f(ciclos if ciclos is not None else [[op] for op in ops if op])
+        resultado["analisis_f"] = analisis
+        resultado["notas"].append(analisis["resumen"])
+    return resultado
 
 
 def inferir(ops: list) -> str:
@@ -209,13 +215,9 @@ def verificar_equivalencia(instruccion: str, microops_texto: list[str]) -> tuple
         return False, f"No se pudo inferir expresión para {destino}. Inferido: {resultado}"
 
     # Comparamos árboles simbólicos, nunca volvemos a interpretar texto de la UI.
-    # En la convención de apuntes, F puede nombrar el bit extraído por ROR.
+    # F del objetivo siempre es F inicial; nunca sustituirlo por un bit extraído.
     expr_inf = normalizar_divisiones(expr_inf)
     expr_obj = normalizar_divisiones(expr_obj)
-    formato = FormatoApuntes([expr_inf])
-    for bit, alias in formato.aliases.items():
-        if alias == F0:
-            expr_obj = expr_obj.subs(F0, bit)
     if simplify(expr_obj - expr_inf) == 0:
         return True, resultado
     if _equiv_en_dominio_acc_12_bits(expr_obj, expr_inf):
@@ -224,7 +226,18 @@ def verificar_equivalencia(instruccion: str, microops_texto: list[str]) -> tuple
     return False, f"Objetivo: {objetivo} | Inferido: {resultado}"
 
 
-def _inferir_expresiones(ops: list):
+def _palabra12(expr):
+    """Valor sin signo de una expresión en una palabra de 12 bits."""
+    if expr in (ACC0, GPR0, M0, F0) or (expr.is_number and 0 <= expr < 4096):
+        return expr
+    if expr.func == floor:
+        numerador, denominador = expr.args[0].as_numer_denom()
+        if denominador.is_Integer and denominador >= 1 and _palabra12(numerador) == numerador:
+            return expr
+    return Mod(expr, 4096)
+
+
+def _inferir_expresiones(ops: list, ciclos: list | None = None):
     """
     Devuelve pares (registro, expresión exacta), o un mensaje si no hay efectos.
     La presentación se aplica después, sin alterar el cálculo simbólico.
@@ -232,47 +245,40 @@ def _inferir_expresiones(ops: list):
     if not ops:
         return "Sin instrucciones"
 
-    ops = [op for op in ops if op]
-    ops = _remover_todos_ciclos_fetch(ops)
+    grupos = [[op] for op in ops if op] if ciclos is None else ciclos
+    pares = [(ciclo, op) for ciclo, grupo in enumerate(grupos) for op in grupo if op]
+    trabajo = []
+    indice = 0
+    while indice < len(pares):
+        if tuple(op for _, op in pares[indice:indice + 4]) == _FETCH_ATOMICA:
+            indice += 4
+        else:
+            trabajo.append(pares[indice])
+            indice += 1
     # Fetch incompleto al inicio (p. ej. solo PC->MAR pegado suelto)
-    FETCH_OPS = {"PC_TO_MAR", "INC_PC", "INC_GPR", "GPR_OP_TO_OPR"}
-    while ops and ops[0] in FETCH_OPS:
-        ops = ops[1:]
+    FETCH_OPS = {"PC_TO_MAR", "INC_PC", "GPR_OP_TO_OPR"}
+    while trabajo and trabajo[0][1] in FETCH_OPS:
+        trabajo = trabajo[1:]
+    ops = [op for _, op in trabajo]
 
     if not ops:
         return "Ciclo fetch / decodificación"
-
-    # ── Detectar si F se usa sin haber sido inicializado en 0 ────────
-    # Ignorar ops de setup (carga de memoria, fetch) al buscar el primer uso de F
-    SETUP_OPS = {"PC_TO_MAR", "INC_PC", "INC_GPR", "GPR_OP_TO_OPR",
-                 "GPR_AD_TO_MAR", "M_TO_GPR", "GPR_TO_ACC", "ACC_TO_GPR",
-                 "ZERO_ACC", "INC_ACC"}
-    f_inicial = Integer(0)
-    for op in ops:
-        if op in SETUP_OPS:
-            continue
-        if op in ("ROL_F_ACC", "ROR_F_ACC"):
-            f_inicial = F0   # F desconocido antes del primer ROL/ROR
-            break
-        if op == "ZERO_F":
-            f_inicial = Integer(0)  # F explícitamente puesto en 0
-            break
 
     # ── Estado simbólico inicial ─────────────────────────────────────
     state = {
         "ACC": ACC0,
         "GPR": GPR0,
         "M":   M0,
-        "F":   f_inicial,
+        "F":   F0,
     }
 
     # ── Ejecutar cada operación simbólicamente ───────────────────────
-    for i, op in enumerate(ops):
-
-        acc = state["ACC"]
-        gpr = state["GPR"]
-        m   = state["M"]
-        f   = state["F"]
+    ciclo_anterior = None
+    for ciclo, op in trabajo:
+        if ciclo != ciclo_anterior:
+            entrada = dict(state)
+            ciclo_anterior = ciclo
+        acc, gpr, m, f = (entrada[r] for r in ("ACC", "GPR", "M", "F"))
 
         if op == "INC_ACC":
             state["ACC"] = simplify(acc + 1)
@@ -293,50 +299,25 @@ def _inferir_expresiones(ops: list):
                 state["F"] = simplify(1 - f)
 
         elif op == "ROL_F_ACC":
-            # ROL: ACC*2 + F (12 bits en hardware). Si ACC==0, inyecta F en el LSB
-            # (bloques “±F” del apunte). Tras inyectar, el bit F de estado se
-            # relee igual en cada micropaso → restauramos F0 cuando el siguiente
-            # paso es NOT/SUM **y** F ya era 0 (no pisar Mod(ACC,2) del ROR previo).
-            new_acc = simplify(acc * 2 + f)
-            state["ACC"] = new_acc
-            nxt = ops[i + 1] if i + 1 < len(ops) else None
-            if simplify(acc) == 0 and nxt in ("NOT_ACC", "SUM_ACC_GPR"):
-                if f == Integer(0):
-                    state["F"] = F0
-                else:
-                    state["F"] = Integer(0)
-            else:
-                state["F"] = Integer(0)
+            state["ACC"] = simplify(acc * 2 + f)
+            # El bit 12 saliente reemplaza F, incluso si antes contenía F inicial.
+            state["F"] = simplify(Mod(floor(acc / 2048), 2))
 
         elif op == "ROR_F_ACC":
-            # ROR con F_old=0: ACC ← ⌊ACC/2⌋ (12 bits), F ← LSB(ACC) (bit que sale).
-            # Antes se ponía F=0 siempre y se perdía el término ±4F en cadenas ROL.
-            if f == Integer(0):
-                state["ACC"] = simplify(floor(acc / 2))
-                state["F"] = simplify(Mod(acc, 2))
-            else:
-                # F=1 (MSB del “13.º bit”): mismo criterio que antes en el modelo.
-                state["ACC"] = simplify(floor((acc + Integer(4096)) / 2))
-                state["F"] = simplify(Mod(acc, 2))
+            # El F anterior entra por el bit 12. Nunca asumir que F desconocido es 1.
+            palabra = _palabra12(acc)
+            state["ACC"] = simplify(floor(palabra / 2) + 2048 * f)
+            state["F"] = simplify(Mod(acc, 2))
 
         elif op == "SUM_ACC_GPR":
             state["ACC"] = simplify(acc + gpr)
-            # Tras el bloque apunte «0; ROL F,ACC; NOT; INC; GPR+ACC» (efecto ACC ← ACC − F),
-            # el modelo ponía F en 0 tras el ROL y al encadenar k bloques solo contaba ~ceil(k/2) veces F0.
-            # En alto nivel cada «−F» resta el mismo bit de estado F0; lo restablecemos aquí.
-            if (
-                i >= 3
-                and ops[i - 3] == "ROL_F_ACC"
-                and ops[i - 2] == "NOT_ACC"
-                and ops[i - 1] == "INC_ACC"
-            ):
-                state["F"] = F0
+            # La suma de Taub conserva el flip-flop F.
 
         elif op == "ACC_TO_GPR":
-            state["GPR"] = state["ACC"]
+            state["GPR"] = acc
 
         elif op == "GPR_TO_ACC":
-            state["ACC"] = state["GPR"]
+            state["ACC"] = gpr
 
         elif op == "ZERO_ACC":
             state["ACC"] = Integer(0)
@@ -350,13 +331,13 @@ def _inferir_expresiones(ops: list):
             state["M"] = M0
 
         elif op == "M_TO_GPR":
-            state["GPR"] = state["M"]
+            state["GPR"] = m
 
         elif op == "M_TO_ACC":
-            state["ACC"] = state["M"]
+            state["ACC"] = m
 
         elif op == "GPR_TO_M":
-            state["M"] = state["GPR"]
+            state["M"] = gpr
 
         elif op == "PC_TO_MAR":
             pass  # fetch, ignorado

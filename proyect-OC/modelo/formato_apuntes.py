@@ -34,6 +34,8 @@ class _ImpresorApuntes(StrPrinter):
 
     def _print_Mod(self, expr):
         valor, divisor = expr.args
+        if divisor == 4096:
+            return f"palabra12({self._print(valor)})"
         return f"resto({self._print(valor)}; {self._print(divisor)})"
 
     def _print_Add(self, expr, order=None):
@@ -88,7 +90,7 @@ class FormatoApuntes:
         bits = sorted(bits, key=default_sort_key)
         f_ocupado = any(str(s) == "F" for s in simbolos)
         self.aliases = {
-            bit: Symbol("F" if len(bits) == 1 and not f_ocupado else f"F{i + 1}", integer=True)
+            bit: Symbol(f"F_extraido{i + 1}", integer=True)
             for i, bit in enumerate(bits)
         }
         self.impresor = _ImpresorApuntes()
@@ -97,14 +99,17 @@ class FormatoApuntes:
         expr = normalizar_divisiones(simplify(expr))
         if usar_aliases:
             expr = expr.xreplace(self.aliases)
+        expr = expr.xreplace({s: Symbol("F_inicial", integer=True) for s in expr.free_symbols if str(s) == "F"})
         texto = self.impresor.doprint(expand(expr))
-        return re.sub(r"(\d)\*(ACC|GPR|M|F\d*)\b", r"\1\2", texto)
+        return re.sub(r"(\d)\*(ACC|GPR|M|F_inicial|F_extraido\d+)\b", r"\1\2", texto)
 
     def instruccion(self, destino, expr):
         return f"{destino} <- {self.texto(expr)}"
 
     def notas(self):
         notas = []
+        if any(str(s) == "F" for e in self.expresiones for s in e.free_symbols):
+            notas.append("F_inicial es el F al comenzar la secuencia; una rotación puede reemplazarlo.")
         if any(e.has(floor) for e in self.expresiones):
             notas.append("Las divisiones se toman en entero, redondeando hacia abajo (sin decimales).")
         for bit, alias in self.aliases.items():
@@ -122,6 +127,8 @@ class FormatoApuntes:
             else:
                 descripcion = f"el último bit de ({self.texto(valor, usar_aliases=False)})"
             notas.append(f"{alias} representa {descripcion} (0 o 1), extraído por la rotación.")
-        if any(e.has(Mod) and any(m.args[1] != 2 for m in e.atoms(Mod)) for e in self.expresiones):
+        if any(m.args[1] == 4096 for e in self.expresiones for m in e.atoms(Mod)):
+            notas.append("palabra12(valor) conserva los 12 bits del resultado (entre 000 y FFF en hexadecimal).")
+        if any(m.args[1] not in (2, 4096) for e in self.expresiones for m in e.atoms(Mod)):
             notas.append("resto(valor; divisor) es lo que sobra al hacer la división entera.")
         return notas

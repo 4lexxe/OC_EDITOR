@@ -26,8 +26,8 @@ OPERACIONES = {
 }
 
 
-def ejecutar_ciclo(cpu: VonNeuman, ops: list[str]) -> None:
-    """Valida conflictos antes de escribir; una línea equivale a un ciclo."""
+def validar_ciclo(ops: list[str]) -> None:
+    """Rechaza operaciones desconocidas y escrituras simultáneas en conflicto."""
     destinos = set()
     for op in ops:
         if op not in OPERACIONES:
@@ -38,6 +38,11 @@ def ejecutar_ciclo(cpu: VonNeuman, ops: list[str]) -> None:
             raise ValueError("Dos operaciones escriben " + ", ".join(sorted(conflicto)) +
                              " en el mismo ciclo. Separalas en líneas distintas.")
         destinos.update(escribe)
+
+
+def ejecutar_ciclo(cpu: VonNeuman, ops: list[str]) -> None:
+    """Valida conflictos antes de escribir; una línea equivale a un ciclo."""
+    validar_ciclo(ops)
     if len(ops) == 1:
         getattr(cpu, OPERACIONES[ops[0]][0])()
         return

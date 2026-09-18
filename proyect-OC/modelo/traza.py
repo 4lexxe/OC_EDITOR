@@ -8,6 +8,7 @@ from bitstring import BitArray
 
 from modelo.Von_Neumann import VonNeuman
 from modelo.ciclos import ejecutar_ciclo
+from modelo.seguimiento_f import SeguimientoF
 from compilador.AnalizadorSintactico import parsear_ciclo, preprocesar_linea_microop
 
 # Texto mostrado en la columna «Microoperación» (notación apuntes)
@@ -167,12 +168,14 @@ def simular_traza(
             lineas = [(None, linea) for linea in _PREFIJO_FETCH] + lineas
 
     cpu = clonar_cpu(cpu_base)
+    seguimiento_f = SeguimientoF()
     filas = []
     mem_log = []
     anterior = _fila_estado(0, "Estado inicial", cpu, mar_pc_decimal=mar_pc_decimal)
     if estado_inicial:
         anterior.update(fase="Inicial", linea=None, ops=[], cambios=[],
-                        valores={k: anterior[k] for k in _COLUMNAS_SIN_REPETIR}, accesos=[])
+                        valores={k: anterior[k] for k in _COLUMNAS_SIN_REPETIR}, accesos=[],
+                        procedencia_f=seguimiento_f.estado())
         filas.append(dict(anterior))
     fase = "Ejecución"
     error = None
@@ -201,6 +204,7 @@ def simular_traza(
                 mem_log.append(evento)
         fila.update(
             fase=fase, linea=numero, ops=ops, accesos=accesos,
+            procedencia_f=seguimiento_f.avanzar(ops, ciclo),
             valores={k: fila[k] for k in _COLUMNAS_SIN_REPETIR},
             cambios=[k for k in _COLUMNAS_SIN_REPETIR if fila[k] != anterior[k]],
         )

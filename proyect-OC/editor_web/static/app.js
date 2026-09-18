@@ -515,12 +515,12 @@ function wireDraftPersistenceOnce() {
   const mem = byId("memory-edit");
   if (mem && !mem.dataset.draftWired) {
     mem.dataset.draftWired = "1";
-    mem.addEventListener("input", () => schedulePersistSessionDraft());
+    mem.addEventListener("input", () => { traceInitialPayload = null; schedulePersistSessionDraft(); });
   }
   const regs = byId("registers");
   if (regs && !regs.dataset.draftWired) {
     regs.dataset.draftWired = "1";
-    regs.addEventListener("input", () => schedulePersistSessionDraft());
+    regs.addEventListener("input", () => { traceInitialPayload = null; schedulePersistSessionDraft(); });
   }
 }
 
@@ -691,6 +691,9 @@ function renderTrace(rows) {
   }).join("") : '<tr><td colspan="11" class="trace-empty"><strong>Tu tabla empieza aquí</strong><span>Cargá un ejemplo del material o escribí las microoperaciones de tu ejercicio.</span></td></tr>';
   const exists = lastTraceRows.some((r) => Number(r.ciclo) === selectedTraceCycle);
   selectTraceCycle(exists ? selectedTraceCycle : Number(lastTraceRows[0]?.ciclo ?? 0), false);
+  const finalF = lastTraceRows.at(-1)?.procedencia_f;
+  byId("trace-final-f").hidden = !finalF;
+  byId("trace-final-f").textContent = finalF ? "Al finalizar: " + finalF.resumen : "";
   const decimal = byId("trace-decimal")?.checked;
   byId("trace-head-pc").textContent = decimal ? "PC (dec)" : "PC";
   byId("trace-head-mar").textContent = decimal ? "MAR (dec)" : "MAR";
@@ -714,6 +717,7 @@ function selectTraceCycle(cycle, scroll = true) {
   const values = row.valores || row;
   byId("trace-selected-registers").innerHTML = TRACE_REGISTERS.map((key) => `<div class="${row.cambios?.includes(key) ? "is-changed" : ""}"><dt>${TRACE_LABELS[key] || key}</dt><dd>${escapeHtml(String(values[key] ?? ""))}</dd></div>`).join("");
   const accesses = row.accesos || [];
+  byId("trace-selected-f").textContent = row.procedencia_f?.resumen || "";
   const memory = byId("trace-selected-memory");
   memory.hidden = !accesses.length;
   memory.textContent = accesses.map((a) => `${a.tipo === "escritura" ? "Escritura" : "Lectura"}: M[$${a.dir.toString(16).toUpperCase().padStart(2, "0")}] = $${a.dato.toString(16).toUpperCase().padStart(3, "0")}`).join(" · ");
@@ -733,8 +737,8 @@ function copyTraceTableAsTsv() {
     setStatus("No hay filas en la traza para copiar.", true);
     return;
   }
-  const headers = ["Ciclo", "Fase", "Microoperación", ...TRACE_REGISTERS.map((k) => TRACE_LABELS[k] || k)];
-  const lines = [headers.join("\t"), ...lastTraceRows.map((r) => [r.ciclo, r.fase, r.micro, ...TRACE_REGISTERS.map((k) => r[k] ?? "")].join("\t"))];
+  const headers = ["Ciclo", "Fase", "Microoperación", ...TRACE_REGISTERS.map((k) => TRACE_LABELS[k] || k), "Procedencia de F"];
+  const lines = [headers.join("\t"), ...lastTraceRows.map((r) => [r.ciclo, r.fase, r.micro, ...TRACE_REGISTERS.map((k) => r[k] ?? ""), r.procedencia_f?.resumen || ""].join("\t"))];
   navigator.clipboard.writeText(lines.join("\n")).then(
     () => setStatus("Tabla de traza copiada (TSV)."),
     () => setStatus("No se pudo copiar la traza.", true),
@@ -911,12 +915,15 @@ function updateAutocompleteFromEditor() {
   renderAutocomplete();
 }
 
+let traceInitialPayload = null;
+
 async function refreshTrace() {
   const st = byId("trace-status");
   const requestId = ++traceRequestId;
   try {
-    const payload = registerPayload();
     const code = byId("code").value;
+    if (traceInitialPayload && traceInitialPayload.code !== code) traceInitialPayload = null;
+    const payload = traceInitialPayload || registerPayload();
     if (byId("trace-code").value !== code) byId("trace-code").value = code;
     const data = await postJson("/api/trace", { ...payload, code,
       trace_mode: byId("trace-mode")?.value ?? "fetch",
@@ -1014,13 +1021,14 @@ function setAutorunEnabled(enabled) {
 
 async function executeOneStep() {
   const payload = registerPayload();
+  if (!traceInitialPayload) traceInitialPayload = structuredClone(payload);
   const data = await postJson("/api/execute-step", payload);
   if (!data.ok) {
     setStatus(data.error || "No se pudo ejecutar el paso.", true);
     return;
   }
   suppressAutorun = true;
-  applyState(data.state);
+  applyState(data.state, true);
   suppressAutorun = false;
   await refreshInference();
   await refreshTrace();
@@ -1039,7 +1047,8 @@ function scheduleAdminAutorun() {
   }, AUTORUN_DEBOUNCE_MS);
 }
 
-function applyState(remote) {
+function applyState(remote, preserveTrace = false) {
+  if (!preserveTrace) traceInitialPayload = null;
   state.code = remote.code;
   state.pc_counter = remote.pc_counter;
   state.registers = remote.registers;
@@ -1327,6 +1336,8 @@ function initEvents() {
       if (mem) {
         mem.classList.toggle("hidden-panel", !showRegsRam);
       }
+      if (view === "memory") byId("trace-initial-settings").open = true;
+      else if (view === "trace") byId("trace-initial-settings").open = false;
 
       if (exercisesSec) {
         exercisesSec.classList.toggle("hidden-panel", view !== "exercises");
@@ -1625,6 +1636,14 @@ async function verifyCurrentExercise() {
     const casesContainer = byId("ex-cases-container");
 
     if (resCard) resCard.hidden = false;
+    const flagAnalysis = byId("ex-f-analysis");
+    flagAnalysis.hidden = !data.analisis_f;
+    if (data.analisis_f) {
+      const flag = data.analisis_f;
+      flagAnalysis.innerHTML = `<strong>¿Qué F usó tu secuencia?</strong><p>${escapeHtml(flag.resumen)}</p>
+        <details><summary>Seguir F ciclo por ciclo</summary><ol>${(flag.historial || []).map((event) =>
+          `<li><strong>Ciclo ${event.ciclo}</strong>: ${escapeHtml(event.evento)}<br>${escapeHtml(event.actual)}</li>`).join("")}</ol></details>`;
+    } else flagAnalysis.textContent = "";
 
     if (data.ok) {
       if (resCard) {
@@ -1663,6 +1682,7 @@ async function verifyCurrentExercise() {
               <span class="ex-case-badge ${badgeClass}">${badgeText}</span>
             </div>
             ${extra}
+            <p class="ex-case-flags">F inicial = ${c.f_inicial ?? "—"} · F final = ${c.f_final ?? "—"}. El mismo valor numérico no implica el mismo origen.</p>
           </div>
         `;
       }).join("");
@@ -1729,27 +1749,26 @@ function loadExerciseIntoMainTrace() {
   if (!ej) return;
 
   const code = byId("ex-code-input")?.value || "";
-  byId("code").value = code;
-  resetEditorHistory(code);
-  updateLineNumbers();
-
   const sug = ej.estado_inicial_sugerido || {};
-  if ("PC" in sug) state.registers["PC"] = Number(sug.PC).toString(2).padStart(8, "0");
-  if ("ACC" in sug) state.registers["ACC"] = Number(sug.ACC).toString(2).padStart(12, "0");
-  if ("F" in sug) state.registers["F"] = Number(sug.F).toString(2).padStart(1, "0");
-  if ("GPR" in sug) state.registers["GPR"] = Number(sug.GPR).toString(2).padStart(12, "0");
-  if (sug.memoria && typeof sug.memoria === "object") {
-    Object.entries(sug.memoria).forEach(([addr, val]) => {
-      const idx = Number(addr);
-      if (idx >= 0 && idx < 256) {
-        state.memory[idx] = Number(val).toString(2).padStart(12, "0");
-      }
-    });
+  const registers = {}, registersHex = {};
+  for (const key of ["PC", "ACC", "GPR", "F", "M"]) {
+    const bits = key === "F" ? 1 : key === "PC" ? 8 : 12;
+    registers[key] = Number(sug[key] || 0).toString(2).padStart(bits, "0");
+    registersHex[key] = binStringToUiHex(bits, registers[key]);
   }
-  applyState(state);
-
+  const memory = Array.from({length: 256}, (_, i) => Number(sug.memoria?.[i] || 0).toString(2).padStart(12, "0"));
+  applyState({code, registers, registers_hex: registersHex, memory,
+    memory_hex: memory.map((v) => binStringToUiHex(12, v)), pc_counter: 0,
+    status: "Ejercicio cargado en la traza.", is_error: false});
+  byId("trace-mode").value = ej.incluir_fetch ? "fetch" : "editor";
+  byId("trace-example").value = "";
+  const source = byId("trace-example-source");
+  source.hidden = false;
+  source.textContent = ej.formula_display + " · " + ej.fuente;
+  selectedTraceCycle = null;
+  schedulePersistSessionDraft();
   document.querySelector('.nav-item[data-view="trace"]')?.click();
-  setStatus("Secuencia y estado cargados en Traza.");
+  setStatus("Secuencia y valores iniciales del ejercicio cargados en Traza.");
 }
 
 async function handleSolutionToggle() {

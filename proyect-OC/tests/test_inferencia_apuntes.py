@@ -38,7 +38,7 @@ def parsear(codigo):
 class InferenciaApuntesTest(unittest.TestCase):
     def test_secuencia_del_usuario(self):
         detalle = Inferidor.inferir_detallado(parsear(CODIGO))
-        self.assertEqual(detalle["instruccion"], "ACC <- -ACC/4 + 2F + 1")
+        self.assertEqual(detalle["instruccion"], "ACC <- -ACC/4 + 2F_extraido1 + 1")
         self.assertIn("bit 2 de ACC inicial", " ".join(detalle["notas"]))
         self.assertIn("sin decimales", " ".join(detalle["notas"]))
         self.assertNotRegex(str(detalle), r"floor\(|Mod\(")
@@ -72,17 +72,17 @@ class InferenciaApuntesTest(unittest.TestCase):
         expr = f + Mod(acc, 2) + 2 * Mod(floor(acc / 2), 2)
         formato = FormatoApuntes([expr])
         texto = formato.texto(expr)
-        self.assertIn("F1", texto)
-        self.assertIn("F2", texto)
+        self.assertIn("F_extraido1", texto)
+        self.assertIn("F_extraido2", texto)
         self.assertNotIn(f, formato.aliases.values())
-        self.assertEqual(len(formato.notas()), 3)
+        self.assertEqual(len(formato.notas()), 4)
 
     def test_aliases_compartidos_entre_destinos(self):
         ops = parsear(CODIGO) + ["ACC_TO_GPR", "GPR_TO_M"]
         detalle = Inferidor.inferir_detallado(ops)
         self.assertEqual(detalle["instruccion"],
-                         "M <- -ACC/4 + 2F + 1  |  ACC <- -ACC/4 + 2F + 1")
-        self.assertEqual(len(detalle["notas"]), 2)
+                         "M <- -ACC/4 + 2F_extraido1 + 1  |  ACC <- -ACC/4 + 2F_extraido1 + 1")
+        self.assertEqual(len(detalle["notas"]), 3)
 
     def test_division_compuesta_y_resto_general(self):
         acc = Inferidor.ACC0
@@ -101,13 +101,19 @@ class InferenciaApuntesTest(unittest.TestCase):
     def test_generador_sigue_verificando_sus_resultados(self):
         for instruccion in (
             "ACC <- 8ACC + 2", "ACC <- ACC/2", "ACC <- ACC/4", "ACC <- ACC/8",
-            "ACC <- ACC/2 - 4F - 2", "ACC <- ACC/4 - F", "ACC <- ACC - F",
+            "ACC <- ACC/2 - 4F - 2", "ACC <- ACC - F",
             "M <- 3M - ACC", "M <- -3M - F", "M <- ACC/4", "M <- 2M - 5F - 1",
         ):
             with self.subTest(instruccion=instruccion):
                 ok, detalle = Inferidor.verificar_equivalencia(instruccion, generar(instruccion))
                 self.assertTrue(ok, detalle)
                 self.assertNotRegex(detalle, r"floor\(|Mod\(")
+
+    def test_no_aprueba_f_extraido_como_f_inicial(self):
+        ok, detalle = Inferidor.verificar_equivalencia("ACC <- ACC/4 - F", generar("ACC <- ACC/4 - F"))
+        self.assertFalse(ok)
+        self.assertIn("F_inicial", detalle)
+        self.assertIn("F_extraido1", detalle)
 
     def test_verificacion_no_depende_del_texto_mostrado(self):
         with patch.object(FormatoApuntes, "instruccion", return_value="Texto de presentación"):

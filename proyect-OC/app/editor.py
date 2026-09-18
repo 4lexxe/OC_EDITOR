@@ -40,7 +40,7 @@ from modelo import Inferidor
 from modelo.explicacion_microops import texto_explicacion_codigo
 from modelo.Generador import generar, ErrorGeneracion
 from modelo.traza import simular_traza
-from modelo.ciclos import ejecutar_ciclo
+from modelo.ciclos import ejecutar_ciclo, validar_ciclo
 from modelo.ejemplos_traza import EJEMPLOS_TRAZA
 from compilador.AnalizadorSintactico import parsear_ciclo
 from compilador.AnalizadorSintactico import parser, preprocesar_linea_microop  # IMPORTANTE (arriba del archivo)
@@ -744,7 +744,16 @@ class CPU_UI:
         """
         if not hasattr(self, "instruccion_var") or self.instruccion_var is None:
             return
-        ops = self._ops_desde_editor()
+        try:
+            ciclos = [parsear_ciclo(linea) for linea in self.code.get("1.0", "end").splitlines()]
+            ciclos = [c for c in ciclos if c]
+            for ciclo in ciclos:
+                validar_ciclo(ciclo)
+            ops = [op for ciclo in ciclos for op in ciclo]
+        except ValueError as exc:
+            self.instruccion_var.set("Revisá la sintaxis de las microoperaciones.")
+            self.inferencia_notas_var.set(str(exc))
+            return
         if not ops:
             self.instruccion_var.set("Sin instrucciones para inferir")
             self.inferencia_notas_var.set("")
@@ -752,7 +761,7 @@ class CPU_UI:
                 self.mostrar_estado("Sin instrucciones para inferir.", error=False)
             return
 
-        detalle = Inferidor.inferir_detallado(ops)
+        detalle = Inferidor.inferir_detallado(ops, ciclos=ciclos)
         resultado = detalle["instruccion"]
         modo = Inferidor.clasificar_modo_direccionamiento(ops)
         self.instruccion_var.set(f"Instruccion: {resultado}  |  Modo: {modo}")
@@ -867,7 +876,8 @@ class CPU_UI:
             return
         valores = " · ".join(f"{k.replace('_', '(') + ')' if '_' in k else k}={v}"
                              for k, v in fila["valores"].items())
-        self.trace_detalle_var.set(f"Ciclo {fila['ciclo']} · {fila['fase']} · {fila['micro']}\n{valores}")
+        self.trace_detalle_var.set(f"Ciclo {fila['ciclo']} · {fila['fase']} · {fila['micro']}\n{valores}\n"
+                                  + fila.get("procedencia_f", {}).get("resumen", ""))
 
     def copiar_tabla_traza(self):
         if not getattr(self, "_trace_rows", None):

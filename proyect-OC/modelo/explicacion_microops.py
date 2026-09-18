@@ -30,7 +30,7 @@ def texto_explicacion_codigo(texto_editor: str) -> str:
     Recorre las líneas del editor en orden y devuelve un texto corto:
     por cada línea válida, la instrucción tal cual y una frase de efecto.
     """
-    from compilador.AnalizadorSintactico import parser, preprocesar_linea_microop
+    from compilador.AnalizadorSintactico import parsear_ciclo, preprocesar_linea_microop
 
     lineas = texto_editor.split("\n")
     partes: list[str] = []
@@ -42,7 +42,7 @@ def texto_explicacion_codigo(texto_editor: str) -> str:
             continue
         hay_algo = True
         try:
-            parsed = parser.parse(linea)
+            parsed = parsear_ciclo(linea)
         except Exception:
             parsed = None
         if not parsed:
@@ -50,18 +50,13 @@ def texto_explicacion_codigo(texto_editor: str) -> str:
             continue
 
         explics: list[str] = []
-        for t in parsed:
-            if t is None or not t:
-                continue
-            op = t[0]
-            if op is None:
-                continue
+        for op in parsed:
             explics.append(EXPLICACION_MICROOP.get(op, f"Efecto interno ({op})."))
 
         if not explics:
             partes.append(f"Línea {num}: {linea}\n   → (sin operación reconocida)\n")
         else:
-            union = " ".join(explics) if len(explics) == 1 else " Luego: ".join(explics)
+            union = " ".join(explics) if len(explics) == 1 else "En el mismo ciclo, con los valores de entrada: " + " · ".join(explics)
             partes.append(f"Línea {num}: {linea}\n   → {union}\n")
 
     if not hay_algo:

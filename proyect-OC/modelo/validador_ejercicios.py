@@ -10,6 +10,7 @@ from bitstring import BitArray
 from compilador.AnalizadorSintactico import parsear_ciclo, preprocesar_linea_microop
 from modelo.Von_Neumann import VonNeuman
 from modelo.ciclos import ejecutar_ciclo
+from modelo.seguimiento_f import analizar_f
 from modelo.ejercicios import obtener_ejercicio_por_id, Ejercicio, CasoPrueba
 
 
@@ -80,6 +81,14 @@ def validar_solucion_ejercicio(ejercicio_id: str, codigo_usuario: str) -> Dict[s
             "feedback": "Ingresá microoperaciones ejecutables."
         }
 
+    analisis_f = analizar_f(ciclos_parsed)
+    if ej.get("sin_memoria") and any(op in {"PC_TO_MAR", "M_TO_GPR", "M_TO_ACC", "GPR_TO_M", "GPR_AD_TO_MAR"}
+                                    for ops in ciclos_parsed for op in ops):
+        return {"ok": False, "error": "Este ejercicio pide solo ejecución en modo implicado, sin accesos a RAM.",
+                "feedback": "Quitá la búsqueda y los accesos a memoria: usá ACC, GPR y F como indica la consigna.",
+                "casos_aprobados": 0, "casos_totales": len(ej.get("casos_prueba", [])),
+                "detalles_casos": [], "analisis_f": analisis_f}
+
     casos = ej.get("casos_prueba", [])
     detalles_casos: List[Dict[str, Any]] = []
     todos_pasaron = True
@@ -124,7 +133,9 @@ def validar_solucion_ejercicio(ejercicio_id: str, codigo_usuario: str) -> Dict[s
             "error_msg": error_ejecucion,
             "esperado": {},
             "obtenido": {},
-            "discrepancias": []
+            "discrepancias": [],
+            "f_inicial": regs.get("F", 0),
+            "f_final": cpu.F.uint,
         }
 
         if error_ejecucion:
@@ -175,7 +186,7 @@ def validar_solucion_ejercicio(ejercicio_id: str, codigo_usuario: str) -> Dict[s
     aprobados = sum(1 for d in detalles_casos if d["paso"])
     
     if todos_pasaron:
-        feedback = f"🎉 ¡Excelente! Solución correcta. Tu secuencia resolvió todos los casos de prueba exitosamente en {ciclos_totales_usados} ciclos."
+        feedback = f"Tu secuencia aprobó los {len(casos)} casos de prueba en {ciclos_totales_usados} ciclos."
     else:
         feedback = f"⚠️ Se aprobaron {aprobados} de {len(casos)} casos de prueba. {primer_error_msg}"
 
@@ -188,5 +199,6 @@ def validar_solucion_ejercicio(ejercicio_id: str, codigo_usuario: str) -> Dict[s
         "casos_totales": len(casos),
         "casos_aprobados": aprobados,
         "detalles_casos": detalles_casos,
-        "feedback": feedback
+        "feedback": feedback,
+        "analisis_f": analisis_f,
     }

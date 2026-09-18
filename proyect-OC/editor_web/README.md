@@ -89,17 +89,58 @@ El panel `/_internal/access-control` muestra la ruta de datos activa y un aviso 
 - Mantiene paneles equivalentes al editor de escritorio: registros, RAM editable, editor, traza y resultados.
 - La calculadora web existente no se modifica.
 
-## Fórmulas legibles
+## Fórmulas y seguimiento de F
 
-La web y el editor de escritorio comparten `modelo/formato_apuntes.py`.
-Las divisiones enteras se muestran como `ACC/4` y los bits extraídos por
-rotaciones como `F`, con una aclaración debajo de la instrucción. Si hay
-varios bits diferentes, se distinguen como `F1`, `F2`, etc. Los cálculos y
-la verificación conservan las expresiones simbólicas originales.
+La web y el escritorio comparten `modelo/formato_apuntes.py` y
+`modelo/seguimiento_f.py`. Las divisiones enteras se muestran como `ACC/4`.
+`F_inicial` identifica el bit al comenzar y `F_extraido1`, `F_extraido2`, etc.
+identifican bits distintos que salen de las rotaciones. Las notas explican su
+origen. No se vuelve a interpretar el texto mostrado para verificar equivalencias.
 
 Ejemplo: dos ROR con F en cero, negación, guardado en GPR, dos ROL sobre
-ACC en cero, suma de GPR e incremento producen `ACC <- -ACC/4 + 2F + 1`.
-Aquí F es el segundo bit del ACC inicial, contando desde la derecha.
+ACC en cero, suma de GPR e incremento producen
+`ACC <- -ACC/4 + 2F_extraido1 + 1`.
+Aquí `F_extraido1` es el segundo bit del ACC inicial, contando desde la derecha.
+El F original se perdió en el primer `0 -> F`.
+
+El seguimiento distingue el contenido actual de F de la información inicial
+copiada a otros registros. Es un análisis de dependencias de bits: puede conservar
+dependencias que una simplificación algebraica mayor eliminaría. Las lecturas de
+memoria posteriores a una escritura dependiente de F se tratan conservadoramente.
+`palabra12(...)` se usa cuando una rotación requiere expresar el ajuste a 12 bits.
+
+## Trazas según la cátedra
+
+Una línea es un ciclo. Las microoperaciones simultáneas leen el estado anterior
+y se aplican juntas. La búsqueda ocupa tres ciclos, incluido `M -> GPR, PC+1 -> PC`.
+PC/MAR tienen 8 bits; OPR 4; ACC/GPR/M 12; F 1. SUM conserva F y `GPR -> M`
+escribe en RAM[MAR]. Una línea inválida detiene la traza sin ejecutar fragmentos.
+
+En **Traza**, elegí un ejemplo del material y pulsá **Cargar ejemplo**. Se cargan
+código, registros y RAM. La tabla permite mostrar solo cambios, ver el estado
+inicial, seleccionar ciclos, revisar F y copiar TSV. Los valores iniciales son
+editables en el panel desplegable. La tabla web conserva el punto de partida
+mientras avanzás con Play; una edición manual o carga nueva inicia otra traza.
+
+Referencias de `VON_NEUMAN_EDITOR_MATERIAL`:
+
+- Taub, *Circuitos Digitales y Microprocesadores*, cap. 9, tabla 9.1-1: registros y microoperaciones.
+- *OC26. Clase Práctica TP5_Arquitectura*, pp. 15–16: M ← M − ACC + F; termina en M[83] = 00C.
+- *OC26_2C. TP5 - Arquitectura de Computadoras*, p. 4, ejercicios 8 y 9: resultados M[48] = 024 y M[37] = 065.
+
+## Ejercicios de parciales
+
+El catálogo incluye las cuatro fórmulas aportadas por el usuario, el ejercicio h
+de TP5 p. 2 y una variante expresamente identificada como propuesta. Cada uno
+tiene consigna, condiciones, pistas, solución explicada y 26 casos visibles.
+El dominio anunciado para esos seis desafíos es 0 ≤ ACC ≤ 400 y F ∈ {0,1};
+las soluciones se comprueban exhaustivamente para las 4.812 combinaciones.
+Las fracciones se redondean hacia abajo y los negativos se representan en C2.
+
+**Verificar mi solución** muestra F inicial/final y su procedencia. **Ver en Traza**
+carga el código actual y el estado sugerido, limpia la RAM anterior y respeta
+si la consigna incluye búsqueda. Aprobar casos de prueba no constituye una
+prueba universal de cualquier programa escrito por el alumno.
 
 Pruebas desde la raíz del proyecto:
 

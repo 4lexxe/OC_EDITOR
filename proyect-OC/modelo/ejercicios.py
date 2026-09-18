@@ -423,7 +423,7 @@ GPR -> M""",
             "Realizar el doble direccionamiento: `GPR(AD) -> MAR; M -> GPR; GPR(AD) -> MAR`.",
             "Sumar ACC y escribir el resultado en la memoria apuntada."
         ],
-        "fuente": "OC26_2C. TP5 - Ejercicio 8 Indirecto",
+        "fuente": "Variante propuesta del direccionamiento indirecto de TP5, ejercicio 8",
         "estado_inicial_sugerido": {
             "PC": 0x10,
             "ACC": 0x009,
@@ -536,7 +536,7 @@ GPR+ACC -> ACC""",
             "Considerar divisiones exactas sin desbordamiento.",
             "El resultado final debe quedar almacenado en la memoria efectiva M."
         ],
-        "fuente": "OC26 - REPASO - 1erParcial-ACTUALIZADO.pdf · Ejercicio Parcial",
+        "fuente": "Práctica propuesta con las operaciones de TP5 y el repaso del primer parcial",
         "estado_inicial_sugerido": {
             "PC": 0x25,
             "ACC": 0x020,  # 32 -> 32/8 = 4
@@ -614,7 +614,7 @@ GPR -> M""",
             "Negar 5F en C2 y restar 1.",
             "Escribir el resultado final en memoria M[AD]."
         ],
-        "fuente": "OC26 - REPASO - 1erParcial · Ejercicios de Parcial Avanzados",
+        "fuente": "Práctica propuesta de memoria y F, basada en la arquitectura de TP5",
         "estado_inicial_sugerido": {
             "PC": 0x30,
             "ACC": 0x000,
@@ -756,20 +756,20 @@ ROR F, ACC""",
     },
     {
         "id": "e14-tp5-ej8-indirecto",
-        "titulo": "TP5 Ej. 8: M <- M + 4F",
+        "titulo": "Variante de TP5: M <- M + 4F",
         "dificultad": "avanzado",
         "dificultad_label": "Avanzado",
         "modo": "indirecto",
         "modo_label": "Modo Indirecto",
         "categoria": "Direccionamiento Indirecto",
         "formula_display": "M <- M + 4F  (Indirecto)",
-        "enunciado": "Ejercicio 8 de la Guía TP5: En modo indirecto, multiplicá el bit de flag F por 4 mediante rotaciones a la izquierda en ACC, sumale el dato de memoria y guardá el resultado.",
+        "enunciado": "Variante para practicar el modo indirecto de TP5: multiplicá el bit de flag F por 4 mediante rotaciones a la izquierda en ACC, sumale el dato de memoria y guardá el resultado.",
         "condiciones": [
             "Modo indirecto.",
             "Multiplicar F por 4 colocando F en ACC y rotando con ceros.",
             "Guardar el resultado en la posición efectiva de memoria."
         ],
-        "fuente": "OC26_2C. TP5 - Ejercicio 8 pág. 4",
+        "fuente": "Variante propuesta basada en TP5, ejercicio 8, página 4; no es la fórmula original",
         "estado_inicial_sugerido": {
             "PC": 0x10,
             "ACC": 0x000,
@@ -827,7 +827,7 @@ GPR -> M""",
             "Preservar las operaciones intermedias correctamente.",
             "Escribir el resultado final en memoria."
         ],
-        "fuente": "Parciales y Exámenes Finales OC Help",
+        "fuente": "Desafío propuesto de práctica basado en la arquitectura de la cátedra",
         "estado_inicial_sugerido": {
             "PC": 0x20,
             "ACC": 0x003,
@@ -887,6 +887,11 @@ GPR -> M""",
         ]
     }
 ]
+
+from modelo.ejercicios_parciales import ejercicios_parciales
+
+EJERCICIOS.extend(ejercicios_parciales())
+
 
 def obtener_ejercicios() -> List[Ejercicio]:
     return EJERCICIOS

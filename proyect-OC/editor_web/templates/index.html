@@ -239,9 +239,11 @@
 
           <div class="right-col">
           <section id="sec-memory" class="panel memory-ram-panel hidden-panel">
-            <div class="panel-header">
+            <details id="trace-initial-settings">
+            <summary class="panel-header">
               <span class="panel-title">Valores iniciales · Registros y RAM</span>
-            </div>
+              <span class="trace-source">Ver / editar</span>
+            </summary>
             <div class="memory-ram-body">
               <div class="memory-ram-block">
                 <h3 class="subpanel-title">Registros (binario ↔ hex)</h3>
@@ -258,6 +260,7 @@
                 <div id="memory-view" class="memory-table"></div>
               </div>
             </div>
+          </details>
           </section>
 
           <section id="sec-trace" class="panel trace-panel">
@@ -303,6 +306,7 @@ GPR(OP) -> OPR"></textarea>
                 <span><strong id="trace-write-count">0</strong> escrituras</span>
                 <span class="trace-summary-result">ACC final <strong id="trace-final-acc">—</strong></span>
               </div>
+              <p class="flag-provenance" id="trace-final-f" hidden></p>
               <div class="trace-table-wrap" tabindex="0" role="region" aria-label="Tabla de ciclos, desplazable">
                 <table class="trace-table" id="trace-table">
                   <caption class="sr-only">Estado de los registros después de cada ciclo. Seleccioná una fila para ver todos sus valores.</caption>
@@ -325,6 +329,7 @@ GPR(OP) -> OPR"></textarea>
                 <div class="trace-inspector-head"><strong id="trace-selected-title">Detalle del ciclo</strong><div><button type="button" id="trace-prev" aria-label="Ciclo anterior">←</button><button type="button" id="trace-next" aria-label="Ciclo siguiente">→</button></div></div>
                 <p id="trace-selected-operation"></p>
                 <dl id="trace-selected-registers"></dl>
+                <p id="trace-selected-f" class="flag-provenance"></p>
                 <p id="trace-selected-memory" class="trace-source" hidden></p>
               </div>
               <div class="trace-steps" id="trace-status" role="status"></div>
@@ -454,6 +459,7 @@ GPR(OP) -> OPR"></textarea>
                     <span class="ex-result-title" id="ex-result-title"></span>
                   </div>
                   <p class="ex-result-feedback" id="ex-result-feedback"></p>
+                  <div class="flag-provenance" id="ex-f-analysis" hidden></div>
                   <div class="ex-cases-container" id="ex-cases-container"></div>
                 </div>
 

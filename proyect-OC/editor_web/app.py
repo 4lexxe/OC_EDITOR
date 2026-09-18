@@ -26,7 +26,7 @@ from modelo.Generador import ErrorGeneracion, generar  # noqa: E402
 from modelo.Von_Neumann import VonNeuman  # noqa: E402
 from modelo.explicacion_microops import texto_explicacion_codigo  # noqa: E402
 from modelo.traza import simular_traza  # noqa: E402
-from modelo.ciclos import ejecutar_ciclo
+from modelo.ciclos import ejecutar_ciclo, validar_ciclo
 from modelo.ejemplos_traza import EJEMPLOS_TRAZA
 from compilador.AnalizadorSintactico import parsear_ciclo
 from modelo.ejercicios import obtener_ejercicios, obtener_ejercicio_por_id
@@ -1110,16 +1110,16 @@ def api_infer():
     payload = request.get_json(force=True) or {}
     editor_state = _get_editor_state(payload)
     code = str(payload.get("code", editor_state.code))
-    ops = []
-    for linea in code.split("\n"):
-        proc = preprocesar_linea_microop(linea)
-        if not proc:
-            continue
-        instr = parser.parse(proc)
-        if instr:
-            for t in instr:
-                if t is not None and t[0] is not None:
-                    ops.append(t[0])
+    ciclos = []
+    try:
+        for numero, linea in enumerate(code.splitlines(), 1):
+            ciclo = parsear_ciclo(linea)
+            validar_ciclo(ciclo)
+            if ciclo:
+                ciclos.append(ciclo)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": f"Línea {numero}: {exc}"}), 400
+    ops = [op for ciclo in ciclos for op in ciclo]
     email = _normalize_email(str(session.get("user_email", "") or ""))
     bsid = _activity_browser_sid(payload)
     if not ops:
@@ -1127,10 +1127,10 @@ def api_infer():
         mode_txt = ""
         body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": []}
     else:
-        detalle = Inferidor.inferir_detallado(ops)
+        detalle = Inferidor.inferir_detallado(ops, ciclos=ciclos)
         infer_txt = detalle["instruccion"]
         mode_txt = Inferidor.clasificar_modo_direccionamiento(ops)
-        body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": detalle["notas"]}
+        body = {"ok": True, "inference": infer_txt, "mode": mode_txt, "notes": detalle["notas"], "flag_analysis": detalle.get("analisis_f")}
     _append_activity_log(
         {
             "kind": "infer",

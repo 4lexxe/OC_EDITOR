@@ -132,6 +132,18 @@
       "casos_totales": 3,
       "code_excerpt": "GPR(AD) -> MAR\nM -> GPR\nGPR(AD) -> MAR\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\n0 -> F\nROR F, ACC\nACC! -> ACC\nACC+1 -> ACC\nM -> GPR\nGPR+ACC -> ACC\nGPR+ACC -> ACC\nGPR+ACC -> ACC\nACC+1 -> ACC\nACC+1 -> ACC\nACC -> GPR\nGPR -> M",
       "at": "2026-09-16T18:35:50.906143+00:00"
+    },
+    {
+      "kind": "exercise_verify",
+      "user_email": "",
+      "user_display": "",
+      "browser_session_id": "e006496f-bba0-4acd-acb5-f3446ec456d7",
+      "exercise_id": "p4-mitad-4f",
+      "ok": false,
+      "casos_aprobados": 0,
+      "casos_totales": 26,
+      "code_excerpt": "fasdas",
+      "at": "2026-09-18T02:09:18.554164+00:00"
     }
   ]
 }
