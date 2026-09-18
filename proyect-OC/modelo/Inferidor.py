@@ -169,16 +169,15 @@ def _not12(expr):
 
 
 def _parsear_instruccion_objetivo(instruccion: str):
-    if "<-" not in instruccion:
+    from modelo.Generador import normalizar_expresion_texto
+    norm = normalizar_expresion_texto(instruccion)
+    if "<-" not in norm:
         return None, None
-    dest_raw, expr_raw = instruccion.split("<-", 1)
+    dest_raw, expr_raw = norm.split("<-", 1)
     destino = dest_raw.strip().upper()
     if destino not in ("ACC", "M", "GPR"):
         return None, None
-    expr_txt = expr_raw.strip()
-    expr_txt = re.sub(r"\b(acc|gpr|m|f)\b", lambda m: m.group().upper(), expr_txt, flags=re.IGNORECASE)
-    expr_txt = re.sub(r"(\d)(ACC|GPR|M\b|F\b)", r"\1*\2", expr_txt)
-    expr_txt = _normalizar_texto_expr_apuntes_para_sym(expr_txt)
+    expr_txt = _normalizar_texto_expr_apuntes_para_sym(expr_raw.strip())
     try:
         expr = expand(sympify(expr_txt, locals=_SYMPY_LOCALS))
     except Exception:

@@ -101,8 +101,8 @@ class InferenciaApuntesTest(unittest.TestCase):
     def test_generador_sigue_verificando_sus_resultados(self):
         for instruccion in (
             "ACC <- 8ACC + 2", "ACC <- ACC/2", "ACC <- ACC/4", "ACC <- ACC/8",
-            "ACC <- ACC/2 - 4F - 2", "ACC <- ACC - F",
-            "M <- 3M - ACC", "M <- -3M - F", "M <- ACC/4", "M <- 2M - 5F - 1",
+            "ACC <- ACC/2 - 4F - 2", "ACC <- ACC - F", "ACC <- ACC + 3F_inicial", "ACC <- ACC - 2F_inicial",
+            "M <- 3M - ACC", "M <- -3M - F", "M <- 3M - F_inicial", "M <- ACC/4", "M <- 2M - 5F - 1",
         ):
             with self.subTest(instruccion=instruccion):
                 ok, detalle = Inferidor.verificar_equivalencia(instruccion, generar(instruccion))

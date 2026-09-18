@@ -130,6 +130,34 @@ def _finalizar(nucleo: list, modo_n: str | None) -> list:
     return nucleo
 
 
+def normalizar_expresion_texto(expr: str) -> str:
+    r"""
+    Normaliza expresiones matemáticas/apuntes para SymPy y generador:
+    - Limpia formato LaTeX (\boxed{}, \leftarrow, \frac{}{}, \left, \right)
+    - Reemplaza flechas y operadores unicode (←, →, :=, −, ×, ·, ÷)
+    - Normaliza sufijos de variables iniciales (F_inicial, F_in, F0, F_0, M_inicial, ACC_inicial, etc.)
+    - Convierte a mayúsculas nombres de registros (ACC, GPR, MAR, M, F)
+    - Inserta * implícito entre números y variables o paréntesis (3F -> 3*F, 3(ACC) -> 3*(ACC), 4M -> 4*M)
+    - Inserta * entre paréntesis adyacentes: (ACC)(F) -> (ACC)*(F)
+    """
+    import re
+    t = str(expr or "").strip()
+    t = re.sub(r'\\boxed\{([^}]+)\}', r'\1', t)
+    t = re.sub(r'\\leftarrow\b', '<-', t)
+    t = re.sub(r'\\rightarrow\b', '->', t)
+    t = re.sub(r'\\left|\\right', '', t)
+    while r'\frac' in t:
+        t = re.sub(r'\\frac\{([^{}]+)\}\{([^{}]+)\}', r'((\1)/(\2))', t)
+    t = t.replace('←', '<-').replace('→', '->').replace(':=', '<-')
+    t = t.replace('−', '-').replace('×', '*').replace('·', '*').replace('÷', '/')
+    t = re.sub(r'(?<![A-Za-z])(acc|gpr|mar|opr|m|f)(?:_?(?:inicial|init|orig|anterior|ant|in|old|0))\b', r'\1', t, flags=re.IGNORECASE)
+    t = re.sub(r'\b(acc|gpr|mar|opr|m|f)\b', lambda m: m.group().upper(), t, flags=re.IGNORECASE)
+    t = re.sub(r'(\d)\s*([A-Za-z(])', r'\1*\2', t)
+    t = re.sub(r'(\))\s*(\()', r'\1*\2', t)
+    t = re.sub(r'(\))\s*([A-Za-z0-9])', r'\1*\2', t)
+    return t
+
+
 def generar(expresion: str, modo: str | None = None) -> list:
     """
     Recibe una expresión como 'ACC <- 8*ACC + 2' o 'M <- 3M - ACC'
@@ -146,11 +174,12 @@ def generar(expresion: str, modo: str | None = None) -> list:
     Retorna lista de strings (instrucciones en sintaxis del compilador).
     Lanza ErrorGeneracion si no puede generar la secuencia.
     """
+    expresion_norm = normalizar_expresion_texto(expresion)
     # ── Parsear el destino y la expresión ────────────────────────────
-    if "<-" in expresion:
-        partes = expresion.split("<-", 1)
-    elif "->" in expresion:
-        partes = expresion.split("->", 1)
+    if "<-" in expresion_norm:
+        partes = expresion_norm.split("<-", 1)
+    elif "->" in expresion_norm:
+        partes = expresion_norm.split("->", 1)
     else:
         raise ErrorGeneracion("Formato inválido. Usá: DEST <- expresion")
 
@@ -160,14 +189,7 @@ def generar(expresion: str, modo: str | None = None) -> list:
     if destino_str not in ("ACC", "M", "GPR"):
         raise ErrorGeneracion(f"Destino '{destino_str}' no soportado. Usá ACC, M o GPR.")
 
-    # Normalizar la expresión para sympy
-    import re
     F = symbols("F", integer=True)
-    # Convertir a mayúsculas los nombres de registros
-    expr_str = re.sub(r'\b(acc|gpr|mar|m|f)\b', lambda m: m.group().upper(), expr_str, flags=re.IGNORECASE)
-    # Insertar * entre número y variable: 4M -> 4*M, 3ACC -> 3*ACC, 2048F -> 2048*F
-    expr_str = re.sub(r'(\d)(ACC|GPR|M\b|F\b)', r'\1*\2', expr_str)
-    expr_str = expr_str.strip()
     try:
         expr = expand(sympify(expr_str, locals={"ACC": ACC, "GPR": GPR, "M": M, "F": F}))
     except Exception as e:
@@ -765,9 +787,48 @@ def _cuerpo_m_lineal_mixto(ca: int, cm: int, k: int) -> list:
 def _cuerpo_acc_lineal_general(ca: int, cm: int, cf: int, k: int) -> list:
     """
     Núcleo: ACC <- ca*ACC + cm*M + cf*F + K.
-    cf < 0 resta |cf| veces F (patrón del apunte). Orden: escalar ACC, sumar M, ±F, constante.
+    Maneja cf == 0, |cf| == 1, y |cf| > 1 preservando operandos y F.
     """
     ops: list = []
+    if cf == 0:
+        ops += _multiplicar_ACC_sin_memoria_M(ca)
+        if cm != 0:
+            ops += _cargar_M_en_GPR()
+            if cm > 0:
+                for _ in range(cm):
+                    ops.append("GPR+ACC -> ACC")
+            else:
+                ops += _acc_restar_gpr_repetido(-cm)
+        ops += _agregar_constante(k)
+        return ops
+
+    if ca == 0 and cm == 0:
+        ops += ["0 -> ACC", "ROL F, ACC"]
+        if abs(cf) > 1:
+            ops += _multiplicar_ACC_sin_memoria_M(abs(cf))
+        if cf < 0:
+            ops += ["ACC! -> ACC", "ACC+1 -> ACC"]
+        ops += _agregar_constante(k)
+        return ops
+
+    # ca != 0 o cm != 0 con |cf| == 1
+    if abs(cf) == 1:
+        ops += _multiplicar_ACC_sin_memoria_M(ca)
+        if cm != 0:
+            ops += _cargar_M_en_GPR()
+            if cm > 0:
+                for _ in range(cm):
+                    ops.append("GPR+ACC -> ACC")
+            else:
+                ops += _acc_restar_gpr_repetido(-cm)
+        ops += ["ACC -> GPR", "0 -> ACC", "ROL F, ACC"]
+        if cf < 0:
+            ops += ["ACC! -> ACC", "ACC+1 -> ACC"]
+        ops += ["GPR+ACC -> ACC"]
+        ops += _agregar_constante(k)
+        return ops
+
+    # |cf| > 1 con ca != 0 o cm != 0: guardar término en M para escalar F sin pisar GPR
     ops += _multiplicar_ACC_sin_memoria_M(ca)
     if cm != 0:
         ops += _cargar_M_en_GPR()
@@ -776,11 +837,11 @@ def _cuerpo_acc_lineal_general(ca: int, cm: int, cf: int, k: int) -> list:
                 ops.append("GPR+ACC -> ACC")
         else:
             ops += _acc_restar_gpr_repetido(-cm)
-    if cf != 0:
-        if cf < 0:
-            ops += _acc_restar_f_veces(-cf)
-        else:
-            ops += _acc_sumar_f_veces(cf)
+    ops += ["ACC -> GPR", "GPR(AD) -> MAR", "GPR -> M", "0 -> ACC", "ROL F, ACC"]
+    ops += _multiplicar_ACC_sin_memoria_M(abs(cf))
+    if cf < 0:
+        ops += ["ACC! -> ACC", "ACC+1 -> ACC"]
+    ops += ["ACC -> GPR", "M -> ACC", "GPR+ACC -> ACC"]
     ops += _agregar_constante(k)
     return ops
 
